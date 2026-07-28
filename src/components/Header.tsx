@@ -1,7 +1,8 @@
 import React from 'react';
-import { ShoppingBag, Send, Cpu, Settings, ShieldCheck, Zap, Plus, RefreshCw, Users, Crown, Bell, HelpCircle, LogOut, User } from 'lucide-react';
+import { ShoppingBag, Send, Cpu, Settings, ShieldCheck, Zap, Plus, RefreshCw, Users, Crown, Bell, HelpCircle, LogOut, User, Sun, Moon } from 'lucide-react';
 import { AffiliateConfig, AutoSchedulerConfig, Subscriber } from '../types';
 import { AppLogo } from './AppLogo';
+import { SyncStatusIndicator } from './SyncStatusIndicator';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'products' | 'channels' | 'templates' | 'logs' | 'subscribers';
@@ -24,6 +25,8 @@ interface HeaderProps {
   onOpenLoginModal: () => void;
   onLogout?: () => void;
   onOpenPriceAlerts?: () => void;
+  isDarkMode?: boolean;
+  onToggleDarkMode?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,7 +49,9 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onOpenLoginModal,
   onLogout,
-  onOpenPriceAlerts
+  onOpenPriceAlerts,
+  isDarkMode = false,
+  onToggleDarkMode
 }) => {
   const isRealAdmin = Boolean(
     isAdminAccount ||
@@ -82,6 +87,9 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Status Indicators & Action Buttons */}
           <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
+            {/* Indicador de Status de Sincronização em Tempo Real */}
+            <SyncStatusIndicator />
+
             {/* Primeiro Acesso / Guia Button */}
             <button
               onClick={onOpenGuide}
@@ -200,8 +208,30 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* User Login / Account Chip */}
+            {/* User Login / Account Chip & Theme Toggle */}
             <div className="flex items-center space-x-2 pl-1 border-l border-white/20">
+              {/* Dark Mode Selector Toggle Button */}
+              {onToggleDarkMode && (
+                <button
+                  type="button"
+                  onClick={onToggleDarkMode}
+                  className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-extrabold transition-all active:scale-95 cursor-pointer shadow-xs"
+                  title={isDarkMode ? 'Alternar para Modo Claro (Light Mode)' : 'Alternar para Modo Escuro Noturno (Dark Mode)'}
+                >
+                  {isDarkMode ? (
+                    <>
+                      <Sun className="w-4 h-4 text-amber-300 fill-amber-300/30 shrink-0" />
+                      <span className="hidden lg:inline text-amber-200">Modo Claro</span>
+                    </>
+                  ) : (
+                    <>
+                      <Moon className="w-4 h-4 text-indigo-200 fill-indigo-200/30 shrink-0" />
+                      <span className="hidden lg:inline text-indigo-100">Modo Escuro</span>
+                    </>
+                  )}
+                </button>
+              )}
+
               <button
                 onClick={onLogout || onOpenLoginModal}
                 className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all group"
@@ -220,7 +250,7 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Settings button */}
               <button
                 onClick={onOpenSettings}
-                className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+                className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
                 title="Configurações do Robô"
               >
                 <Settings className="w-4 h-4" />

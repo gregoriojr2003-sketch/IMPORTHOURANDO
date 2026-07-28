@@ -1009,7 +1009,7 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                   >
                     <option value="ATIVO">🟢 ATIVO (Acesso Liberado)</option>
                     <option value="RECONQUISTA_3M">🟡 RECONQUISTA_3M (Regra 2 - 3 Meses)</option>
-                    <option value="CANCELADO">🔴 CANCELADO (Acesso Bloqueado)</option>
+                    <option value="CANCELADO">🔴 CANCELADO (Aguardando Desbloquear Funcionalidades)</option>
                   </select>
                 </div>
 

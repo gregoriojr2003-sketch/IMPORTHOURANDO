@@ -55,7 +55,7 @@ export const SubscriptionPaywallModal: React.FC<SubscriptionPaywallModalProps> =
           <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs leading-relaxed space-y-1">
             <p className="font-bold text-amber-950 flex items-center gap-1.5 text-sm">
               <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>Ação Bloqueada no Modo Tour:</span>
+              <span>Desbloquear Funcionalidades do Plano:</span>
             </p>
             <p className="text-slate-700">
               Para <strong className="text-[#2D3277]">{actionName}</strong> e liberar todos os disparos automáticos no WhatsApp, escolha um dos nossos planos de assinatura.

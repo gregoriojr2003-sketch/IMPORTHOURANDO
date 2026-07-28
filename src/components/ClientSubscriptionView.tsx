@@ -155,44 +155,44 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
             </>
           ) : (
             <>
-              <Lock className="w-3.5 h-3.5" /> Alternar para Status Suspenso / Inadimplente (Simular)
+              <Lock className="w-3.5 h-3.5" /> Alternar para Status Aguardando Ativação (Simular)
             </>
           )}
         </button>
       </div>
 
-      {/* SUSPENSION ALERT BANNER - SPECIFICALLY FOR DEFAULTED / EXPIRED SUBSCRIBERS */}
+      {/* SUSPENSION ALERT BANNER - SPECIFICALLY FOR EXPIRED SUBSCRIBERS */}
       {isSuspended && (
-        <div className="bg-gradient-to-r from-red-600 via-rose-700 to-amber-700 text-white p-6 md:p-8 rounded-3xl shadow-xl border-2 border-red-400 space-y-5 relative overflow-hidden animate-pulse">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="bg-gradient-to-r from-slate-800 via-indigo-950 to-blue-950 text-white p-6 md:p-8 rounded-3xl shadow-xl border-2 border-indigo-400 space-y-5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-black uppercase tracking-wider border border-white/30">
                 <ShieldAlert className="w-4 h-4 text-amber-300" />
-                SERVIÇO SUSPENSO POR EXPIRAÇÃO / INADIMPLÊNCIA
+                DESBLOQUEAR FUNCIONALIDADES DO SEU PLANO
               </div>
               <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">
-                O Robô de Disparos de {currentSubscriber.name.split(' ')[0]} Está Pausado 🚨
+                Ative a sua licença para colocar o robô em produção ⚡
               </h2>
-              <p className="text-xs md:text-sm text-red-100 max-w-2xl leading-relaxed">
-                <strong>Política do Sistema IMPORTHOURANDO:</strong> Não enviamos cobranças automáticas, faturas ou débitos recorrentes no seu cartão. O serviço é apenas suspenso temporariamente até a renovação voluntária.
+              <p className="text-xs md:text-sm text-slate-200 max-w-2xl leading-relaxed">
+                <strong>Política do Sistema IMPORTHOURANDO:</strong> Não enviamos cobranças automáticas ou débitos recorrentes sem seu consentimento. Renove ou ative quando desejar para liberar 100% das ferramentas.
               </p>
             </div>
 
             {/* EASY RECOVERY BUTTON */}
             <button
               onClick={() => handleStartUpgrade(currentSubscriber.plan || 'MENSAL', 0)}
-              className="px-6 py-4 rounded-2xl bg-gradient-to-r from-[#FFE600] to-amber-400 hover:from-amber-300 hover:to-amber-500 text-[#2D3277] font-black text-sm shadow-2xl hover:scale-105 transition-all flex items-center justify-center gap-2 shrink-0 border border-white/40"
+              className="px-6 py-4 rounded-2xl bg-gradient-to-r from-[#FFE600] to-amber-400 hover:from-amber-300 hover:to-amber-500 text-[#2D3277] font-black text-sm shadow-2xl hover:scale-105 transition-all flex items-center justify-center gap-2 shrink-0 border border-white/40 cursor-pointer"
             >
               <Zap className="w-5 h-5 fill-current text-[#2D3277]" />
-              ⚡ LIBERAR FUNCIONALIDADES AGORA
+              ⚡ DESBLOQUEAR FUNCIONALIDADES AGORA
             </button>
           </div>
         </div>
       )}
 
       {/* Client Header Banner */}
-      <div className={`bg-gradient-to-r ${isSuspended ? 'from-slate-800 via-slate-900 to-slate-950 border-2 border-red-500/50' : 'from-[#2D3277] via-[#1E2355] to-[#141738]'} rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden`}>
+      <div className={`bg-gradient-to-r ${isSuspended ? 'from-slate-800 via-slate-900 to-slate-950 border-2 border-amber-500/50' : 'from-[#2D3277] via-[#1E2355] to-[#141738]'} rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden`}>
         <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div className="space-y-2">
@@ -227,13 +227,13 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
 
             <div className={`mt-2 text-[11px] font-bold px-3 py-1 rounded-full inline-flex items-center gap-1 ${
               isSuspended
-                ? 'bg-red-500/30 text-red-200 border border-red-400/50'
+                ? 'bg-amber-500/30 text-amber-200 border border-amber-400/50'
                 : 'bg-emerald-500/20 text-emerald-300'
             }`}>
               {isSuspended ? (
                 <>
-                  <Lock className="w-3.5 h-3.5 text-red-400" />
-                  Status: SUSPENSO / INADIMPLENTE
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  AGUARDANDO DESBLOQUEAR FUNCIONALIDADES
                 </>
               ) : (
                 <>
@@ -305,8 +305,8 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
               <Sparkles className="w-4 h-4 text-amber-500" /> Funcionalidades do Robô IMPORTHOURANDO
             </h3>
             {isSuspended ? (
-              <span className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-full border border-red-200 flex items-center gap-1">
-                <Lock className="w-3 h-3" /> Temporariamente Bloqueadas
+              <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 flex items-center gap-1">
+                <Lock className="w-3 h-3 text-amber-600" /> Aguardando Desbloquear Funcionalidades
               </span>
             ) : (
               <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">

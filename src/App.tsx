@@ -84,6 +84,35 @@ export default function App() {
   const [isSubscriptionPaywallOpen, setIsSubscriptionPaywallOpen] = useState(false);
   const [paywallActionName, setPaywallActionName] = useState('colocar o robô para funcionar');
 
+  // Dark Mode State with localStorage & document element class toggle
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('importhourando_dark_mode');
+      if (saved !== null) return saved === 'true';
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('importhourando_dark_mode', 'true');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('importhourando_dark_mode', 'false');
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [isDarkMode]);
+
+  const handleToggleDarkMode = () => {
+    setIsDarkMode(prev => !prev);
+  };
+
   const ensureActiveSubscription = (actionName = 'colocar o robô para funcionar'): boolean => {
     if (userRole === 'ADMIN') return true;
     if (currentSubscriber && currentSubscriber.status === 'ATIVO') return true;
@@ -441,6 +470,8 @@ export default function App() {
         unreadNotificationsCount={unreadCount}
         onOpenGuide={() => setIsGuideOpen(true)}
         onOpenPriceAlerts={() => setIsPriceAlertsOpen(true)}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={handleToggleDarkMode}
       />
 
       {/* Global Client Mode Tour Banner / Subscription Status */}
