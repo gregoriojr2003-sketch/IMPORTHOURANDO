@@ -1,0 +1,8 @@
+{
+  "name": "IMPORTHOURANDO - Automação de Afiliados",
+  "description": "Disparo e automação de ofertas de afiliados do Mercado Livre para canais e grupos do WhatsApp com Gerador de Copy por IA e Agendador.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
