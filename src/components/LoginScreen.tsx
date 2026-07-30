@@ -37,7 +37,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [isLoading, setIsLoading] = useState(false);
 
   // Handle 30-minute guest trial start
-  const handleStartGuest30MinTrial = () => {
+  const handleStartGuest30MinTrial = async () => {
     setIsLoading(true);
     const guestSub: Subscriber = {
       id: `trial-${Date.now()}`,
@@ -53,6 +53,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       isLifetimeExemptFromMonitoring: false,
       notes: 'Degustação grátis de 30 minutos iniciada'
     };
+
+    try {
+      await fetch('/api/admin/subscribers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(guestSub)
+      });
+    } catch (e) {
+      console.error(e);
+    }
 
     onLoginSuccess({
       name: guestSub.name,
@@ -72,7 +82,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   };
 
   // Handle Login submission
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
@@ -90,7 +100,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
     setIsLoading(true);
 
-    setTimeout(() => {
+    try {
       // 1. Admin Detection (Private backend email match)
       if (cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br' || cleanEmail === 'admin') {
         const adminSub = subscribers.find(s => s.email.toLowerCase() === 'gregoriojr2003@gmail.com') || subscribers[0];
@@ -124,16 +134,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           id: `sub-${Date.now()}`,
           name: cleanEmail.split('@')[0],
           email: cleanEmail,
-          phone: '+55 11 99999-0000',
+          phone: '+55 (11) 99999-0000',
           plan: 'MENSAL',
-          status: 'PENDENTE', // Require plan activation
+          status: 'ATIVO',
           startedAt: new Date().toISOString().split('T')[0],
-          expiresAt: null,
-          totalPaid: 0,
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          totalPaid: 29.90,
           discountApplied: 0,
           isLifetimeExemptFromMonitoring: false,
-          notes: 'Cadastro via formulário de entrada'
+          notes: 'Conta registrada via login com e-mail'
         };
+
+        await fetch('/api/admin/subscribers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(tempSub)
+        }).catch(() => {});
 
         onLoginSuccess({
           name: tempSub.name,
@@ -146,8 +162,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       }
 
       setError('E-mail ou login não encontrado. Verifique os dados ou crie uma nova conta.');
+    } catch (err) {
+      setError('Erro ao efetuar login. Tente novamente.');
+    } finally {
       setIsLoading(false);
-    }, 400);
+    }
   };
 
   // Handle Account Registration
@@ -212,16 +231,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
   };
 
-  // Social SSO Handler (Google & Facebook)
-  const handleSocialAuth = (provider: 'Google' | 'Facebook') => {
+  // Social SSO Handler (Google, WhatsApp & Facebook)
+  const handleSocialAuth = async (provider: 'Google' | 'WhatsApp' | 'Facebook') => {
     setIsLoading(true);
     setError('');
     setSuccessMsg('');
 
-    setTimeout(() => {
-      // Simulate Google or Facebook OAuth returning user profile
-      const providerEmail = provider === 'Google' ? 'usuario.google@gmail.com' : 'usuario.facebook@hotmail.com';
-      const providerName = provider === 'Google' ? 'Usuário Google' : 'Usuário Facebook';
+    try {
+      const providerEmail = provider === 'Google'
+        ? 'usuario.google@gmail.com'
+        : (provider === 'WhatsApp' ? 'usuario.whatsapp@whatsapp.com' : 'usuario.facebook@hotmail.com');
+      
+      const providerName = provider === 'Google'
+        ? 'Usuário Google'
+        : (provider === 'WhatsApp' ? 'Usuário WhatsApp' : 'Usuário Facebook');
+
+      const providerPhone = provider === 'WhatsApp' ? '+55 (11) 98888-9999' : '+55 (11) 98888-7777';
 
       // Check if user already exists
       const existingSub = subscribers.find(s => s.email.toLowerCase() === providerEmail.toLowerCase());
@@ -239,16 +264,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           id: `sub-social-${Date.now()}`,
           name: providerName,
           email: providerEmail,
-          phone: '+55 11 98888-7777',
+          phone: providerPhone,
           plan: 'MENSAL',
-          status: 'PENDENTE', // Must choose/activate plan for full features
+          status: 'ATIVO',
           startedAt: new Date().toISOString().split('T')[0],
           expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
           totalPaid: 29.90,
           discountApplied: 0,
           isLifetimeExemptFromMonitoring: false,
-          notes: `Cadastro via ${provider}`
+          notes: `Cadastro e login automático realizado via ${provider}`
         };
+
+        // Persist to backend server
+        await fetch('/api/admin/subscribers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newSocialSub)
+        }).catch(() => {});
 
         onLoginSuccess({
           name: newSocialSub.name,
@@ -257,8 +289,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           subscriber: newSocialSub
         });
       }
+    } catch (err) {
+      setError(`Erro no login via ${provider}. Tente novamente.`);
+    } finally {
       setIsLoading(false);
-    }, 400);
+    }
   };
   const handleRecoverSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -415,7 +450,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     type="button"
                     onClick={() => handleSocialAuth('Google')}
                     disabled={isLoading}
-                    className="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3"
+                    className="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
                   >
                     <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -428,9 +463,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
                   <button
                     type="button"
+                    onClick={() => handleSocialAuth('WhatsApp')}
+                    disabled={isLoading}
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
+                  >
+                    <Phone className="w-4 h-4 fill-current shrink-0" />
+                    <span>Entrar com WhatsApp</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => handleSocialAuth('Facebook')}
                     disabled={isLoading}
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#1877F2] hover:bg-[#165EBF] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3"
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#1877F2] hover:bg-[#165EBF] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
                   >
                     <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
                       <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />

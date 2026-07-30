@@ -40,7 +40,7 @@ export default function App() {
   // Mandatory Initial Screen Authentication Session State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
-      return sessionStorage.getItem('importhourando_auth') === 'true';
+      return localStorage.getItem('importhourando_auth') === 'true' || sessionStorage.getItem('importhourando_auth') === 'true';
     } catch (e) {
       return false;
     }
@@ -53,7 +53,7 @@ export default function App() {
     subscriber?: Subscriber;
   } | null>(() => {
     try {
-      const saved = sessionStorage.getItem('importhourando_user');
+      const saved = localStorage.getItem('importhourando_user') || sessionStorage.getItem('importhourando_user');
       return saved ? JSON.parse(saved) : null;
     } catch (e) {
       return null;
@@ -199,8 +199,14 @@ export default function App() {
       if (resSubs?.subscribers) {
         setSubscribers(resSubs.subscribers);
         if (resSubs.notifications) setAdminNotifications(resSubs.notifications);
-        const loggedUser = resSubs.subscribers.find((s: Subscriber) => s.email === 'gregoriojr2003@gmail.com') || resSubs.subscribers[0];
-        if (loggedUser) setCurrentSubscriber(loggedUser);
+        const savedUserStr = localStorage.getItem('importhourando_user') || sessionStorage.getItem('importhourando_user');
+        const activeEmail = currentUser?.email || (savedUserStr ? JSON.parse(savedUserStr)?.email : null);
+        if (activeEmail) {
+          const matched = resSubs.subscribers.find((s: Subscriber) => s.email.toLowerCase() === activeEmail.toLowerCase());
+          if (matched) {
+            setCurrentSubscriber(matched);
+          }
+        }
       }
     } catch (e) {
       console.log('Using default mock state');
@@ -684,11 +690,7 @@ export default function App() {
         onClose={() => setIsLoginModalOpen(false)}
         subscribers={subscribers}
         onLoginSuccess={(user) => {
-          setUserRole(user.role);
-          setCurrentUser(user);
-          if (user.subscriber) {
-            setCurrentSubscriber(user.subscriber);
-          }
+          handleLoginSuccess(user);
           if (user.role === 'SUBSCRIBER' && activeTab === 'subscribers') {
             setActiveTab('subscribers');
           }
