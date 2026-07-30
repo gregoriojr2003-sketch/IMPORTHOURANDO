@@ -108,6 +108,18 @@ export interface BrandVoiceConfig {
   customCtaPhrase: string;
 }
 
+export interface WebhookConfig {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  events: ('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT')[];
+  secretToken?: string;
+  createdAt: string;
+  lastTriggeredAt?: string;
+  lastStatus?: number;
+}
+
 export interface AffiliateConfig {
   affiliateTag: string; // Legacy / ML tag
   customDomain?: string;
@@ -117,6 +129,9 @@ export interface AffiliateConfig {
 
   // Brand Voice & AI Copy Directives
   brandVoice?: BrandVoiceConfig;
+
+  // Custom Webhooks Integration
+  webhooks?: WebhookConfig[];
 
   mlAppId?: string;
   mlSecretKey?: string;
@@ -143,7 +158,7 @@ export interface MLSearchFilter {
 }
 
 export type SubscriptionPlan = 'MENSAL' | 'SEMESTRAL' | 'ANUAL';
-export type SubscriberStatus = 'ATIVO' | 'CANCELADO' | 'RECONQUISTA_3M' | 'EXPIRADO' | 'PENDENTE' | 'DEGUSTACAO';
+export type SubscriberStatus = 'ATIVO' | 'CANCELADO' | 'RECONQUISTA_3M' | 'EXPIRADO' | 'PENDENTE' | 'DEGUSTACAO' | 'CORTESIA' | 'SUSPENSO';
 
 export interface Subscriber {
   id: string;
@@ -157,6 +172,11 @@ export interface Subscriber {
   totalPaid: number;
   discountApplied: number; // 0, 10, or 30 (%)
   isLifetimeExemptFromMonitoring: boolean; // Regra 1: Anual é marcado e possui Isenção/Desconto especial
+  isCourtesy?: boolean; // Cortesia marcada pelo Administrador (sem cobrança)
+  courtesyGrantedAt?: string;
+  courtesyRevokedAt?: string;
+  trialStartedAt?: string; // Início do período de degustação de 30 minutos
+  trialExpiresAt?: string; // Limite de 30 minutos do teste grátis
   cancellationRequestedAt?: string;
   reengagementDeadline?: string; // Regra 2: Janela de 3 meses de reconquista
   notes?: string;

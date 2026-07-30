@@ -1,5 +1,17 @@
 import { AffiliateConfig, WhatsAppChannel, OfferPostTemplate, DispatchedOffer, AutoSchedulerConfig, MercadoLivreProduct, Subscriber, AdminNotification, PriceAlertRule, MLMonitorConfig } from '../types';
 
+export interface RestoreHistoryItem {
+  id: string;
+  timestamp: string;
+  restoreMode: 'REPLACE' | 'MERGE';
+  fileName: string;
+  exportDate?: string;
+  channelsCount: number;
+  templatesCount: number;
+  alertsCount: number;
+  dispatchesCount: number;
+}
+
 export interface AppBackupData {
   version: string;
   exportDate: string;
@@ -109,9 +121,60 @@ export function validateBackupJson(jsonObj: any): { isValid: boolean; error?: st
 }
 
 /**
+ * Retrieves restore history from localStorage
+ */
+export function getRestoreHistory(): RestoreHistoryItem[] {
+  if (typeof window === 'undefined' || !window.localStorage) return [];
+  try {
+    const raw = localStorage.getItem('importhourando_restore_history');
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Failed to parse restore history:', e);
+  }
+  return [];
+}
+
+/**
+ * Adds a new restore entry to history
+ */
+export function addRestoreHistoryItem(item: Omit<RestoreHistoryItem, 'id' | 'timestamp'>): RestoreHistoryItem[] {
+  const history = getRestoreHistory();
+  const newItem: RestoreHistoryItem = {
+    ...item,
+    id: `rst_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+    timestamp: new Date().toLocaleString('pt-BR')
+  };
+
+  const updated = [newItem, ...history].slice(0, 20); // Keep max 20 history items
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem('importhourando_restore_history', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save restore history:', e);
+    }
+  }
+  return updated;
+}
+
+/**
+ * Clears restore history from localStorage
+ */
+export function clearRestoreHistory(): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.removeItem('importhourando_restore_history');
+    } catch (e) {
+      console.warn('Failed to clear restore history:', e);
+    }
+  }
+}
+
+/**
  * Persists all backup keys back into localStorage
  */
-export function applyBackupToLocalStorage(backup: AppBackupData) {
+export function applyBackupToLocalStorage(backup: AppBackupData, mode: 'REPLACE' | 'MERGE' = 'REPLACE', fileName: string = 'backup.json') {
   if (typeof window === 'undefined' || !window.localStorage) return;
 
   try {
@@ -148,6 +211,17 @@ export function applyBackupToLocalStorage(backup: AppBackupData) {
     
     // Save backup timestamp
     localStorage.setItem('importhourando_last_backup_imported', new Date().toISOString());
+
+    // Record in history log
+    addRestoreHistoryItem({
+      restoreMode: mode,
+      fileName,
+      exportDate: backup.exportDate,
+      channelsCount: backup.channels?.length || 0,
+      templatesCount: backup.templates?.length || 0,
+      alertsCount: backup.priceAlerts?.length || 0,
+      dispatchesCount: backup.dispatchedLogs?.length || 0
+    });
   } catch (e) {
     console.error('Error applying backup to localStorage:', e);
   }

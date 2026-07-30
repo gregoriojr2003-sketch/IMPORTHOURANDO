@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ProductOfferHunter } from './components/ProductOfferHunter';
@@ -20,7 +20,7 @@ import { PriceAlertsModal } from './components/PriceAlertsModal';
 import { SubscriptionPaywallModal } from './components/SubscriptionPaywallModal';
 import { BackupManagerModal } from './components/BackupManagerModal';
 import { FloatingDiagnosticLog } from './components/FloatingDiagnosticLog';
-import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, WifiOff } from 'lucide-react';
 
 import { MercadoLivreProduct, WhatsAppChannel, OfferPostTemplate, DispatchedOffer, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, PriceAlertRule } from './types';
 import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCHED_LOGS, INITIAL_SCHEDULER_CONFIG, INITIAL_AFFILIATE_CONFIG, INITIAL_SUBSCRIBERS, INITIAL_ADMIN_NOTIFICATIONS, INITIAL_PRICE_ALERTS } from './data/initialData';
@@ -210,22 +210,26 @@ export default function App() {
 
   // 30-Minute Trial Timer State
   const [trialSecondsLeft, setTrialSecondsLeft] = useState<number | undefined>(() => {
-    if (currentSubscriber?.status === 'DEGUSTACAO') {
-      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
-      return Math.max(0, Math.floor((exp - Date.now()) / 1000));
+    if (currentSubscriber?.status === 'DEGUSTACAO' || currentSubscriber?.status === 'PENDENTE') {
+      const expTime = currentSubscriber.trialExpiresAt 
+        ? new Date(currentSubscriber.trialExpiresAt).getTime()
+        : (currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000);
+      return Math.max(0, Math.floor((expTime - Date.now()) / 1000));
     }
     return undefined;
   });
 
   useEffect(() => {
-    if (currentSubscriber?.status !== 'DEGUSTACAO') {
+    if (currentSubscriber?.status !== 'DEGUSTACAO' && currentSubscriber?.status !== 'PENDENTE') {
       setTrialSecondsLeft(undefined);
       return;
     }
 
     const timer = setInterval(() => {
-      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
-      const left = Math.max(0, Math.floor((exp - Date.now()) / 1000));
+      const expTime = currentSubscriber.trialExpiresAt 
+        ? new Date(currentSubscriber.trialExpiresAt).getTime()
+        : (currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000);
+      const left = Math.max(0, Math.floor((expTime - Date.now()) / 1000));
       setTrialSecondsLeft(left);
 
       if (left <= 0) {
@@ -237,12 +241,39 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [currentSubscriber?.status, currentSubscriber?.expiresAt]);
+  }, [currentSubscriber?.status, currentSubscriber?.expiresAt, currentSubscriber?.trialExpiresAt]);
 
   const ensureActiveSubscription = (actionName = 'colocar o robô para funcionar'): boolean => {
     if (userRole === 'ADMIN') return true;
-    if (currentSubscriber && currentSubscriber.status === 'ATIVO') return true;
-    if (currentSubscriber && currentSubscriber.status === 'DEGUSTACAO' && (trialSecondsLeft === undefined || trialSecondsLeft > 0)) return true;
+    if (!currentSubscriber) return false;
+
+    // 1. Courtesy subscribers are 100% exempt and granted full access
+    if (currentSubscriber.status === 'CORTESIA' || currentSubscriber.isCourtesy) {
+      return true;
+    }
+
+    // 2. Active subscribers have full access
+    if (currentSubscriber.status === 'ATIVO') {
+      return true;
+    }
+
+    // 3. Suspended courtesy subscribers must be informed and directed to subscription page
+    if (currentSubscriber.status === 'SUSPENSO') {
+      setPaywallActionName('Sua cortesia de acesso foi suspensa pelo administrador. Por favor, escolha um plano para reativar seu acesso às ferramentas.');
+      setIsSubscriptionPaywallOpen(true);
+      return false;
+    }
+
+    // 4. Pending / Trial users have 30 minutes of free access
+    if (currentSubscriber.status === 'DEGUSTACAO' || currentSubscriber.status === 'PENDENTE') {
+      const expTime = currentSubscriber.trialExpiresAt 
+        ? new Date(currentSubscriber.trialExpiresAt).getTime()
+        : (currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000);
+      
+      if (expTime > Date.now()) {
+        return true;
+      }
+    }
 
     setPaywallActionName(actionName);
     setIsSubscriptionPaywallOpen(true);
@@ -271,6 +302,19 @@ export default function App() {
     totalNewOffersIdentified: 12
   });
 
+  const BACKOFF_DELAYS = [2, 5, 10]; // Exponential backoff delays in seconds
+  const [retryAttempt, setRetryAttempt] = useState<number>(0);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const cancelRetryTimer = () => {
+    if (retryTimerRef.current) {
+      clearInterval(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    setRetryCountdown(null);
+  };
+
   const [loadingEndpoint, setLoadingEndpoint] = useState<string | null>(null);
   const [timeoutEndpoints, setTimeoutEndpoints] = useState<string[]>([]);
   const [syncState, setSyncState] = useState<'IDLE' | 'LOADING' | 'SUCCESS' | 'ERROR'>('IDLE');
@@ -294,16 +338,20 @@ export default function App() {
       const isTimeout = err.name === 'AbortError' || err.message?.includes('aborted');
       console.warn(`[WATERFALL FETCH] ${url} -> ${isTimeout ? 'TIMEOUT (5s)' : err.message}`);
       setTimeoutEndpoints(prev => prev.includes(url) ? prev : [...prev, url]);
-      return null;
+      throw err;
     } finally {
       setLoadingEndpoint(null);
     }
   };
 
-  // Sync state with server API via Sequential Waterfall Requests (5s timeout per request)
-  const fetchAllData = async () => {
+  // Sync state with server API via Sequential Waterfall Requests (5s timeout per request) with Exponential Backoff (2s, 5s, 10s)
+  const fetchAllData = async (attemptIndex = 0) => {
+    cancelRetryTimer();
     setSyncState('LOADING');
-    setTimeoutEndpoints([]);
+    if (attemptIndex === 0) {
+      setTimeoutEndpoints([]);
+    }
+
     try {
       // 1. /api/config
       const resConfig = await fetchEndpointWithTimeout('/api/config', 5000);
@@ -367,14 +415,38 @@ export default function App() {
       if (resMlMon?.config) setMlMonitorConfig(resMlMon.config);
 
       setSyncState('SUCCESS');
+      setRetryAttempt(0);
+      setRetryCountdown(null);
     } catch (e) {
       console.error('[WATERFALL FETCH ERROR]', e);
       setSyncState('ERROR');
+
+      // Exponential Backoff Retries: Attempt 0 -> Delay 2s, Attempt 1 -> Delay 5s, Attempt 2 -> Delay 10s
+      if (attemptIndex < BACKOFF_DELAYS.length) {
+        const delaySeconds = BACKOFF_DELAYS[attemptIndex];
+        const nextAttempt = attemptIndex + 1;
+        setRetryAttempt(nextAttempt);
+        setRetryCountdown(delaySeconds);
+
+        let secondsRemaining = delaySeconds;
+        retryTimerRef.current = setInterval(() => {
+          secondsRemaining -= 1;
+          if (secondsRemaining <= 0) {
+            cancelRetryTimer();
+            fetchAllData(attemptIndex + 1);
+          } else {
+            setRetryCountdown(secondsRemaining);
+          }
+        }, 1000);
+      } else {
+        // Exceeded max retries
+        setRetryCountdown(null);
+      }
     }
   };
 
   useEffect(() => {
-    fetchAllData();
+    fetchAllData(0);
 
     // Auto-polling every 4 seconds to sync live background offer dispatches and admin notifications
     const interval = setInterval(() => {
@@ -388,7 +460,10 @@ export default function App() {
       }).catch(() => {});
     }, 4000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      cancelRetryTimer();
+    };
   }, []);
 
   const handleMarkNotificationsRead = async () => {
@@ -713,8 +788,56 @@ export default function App() {
         onOpenPaywall={() => setIsSubscriptionPaywallOpen(true)}
       />
 
+      {/* Exponential Backoff Retry Countdown Banner */}
+      {retryCountdown !== null && retryCountdown > 0 && (
+        <div className="bg-amber-600 text-white text-xs py-2.5 px-4 border-b border-amber-700 flex items-center justify-between gap-3 font-medium shadow-md animate-pulse">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <RefreshCw className="w-4 h-4 text-amber-200 animate-spin shrink-0" />
+            <span>
+              <strong>Falha na conexão (Timeout ou Erro 5xx).</strong> Tentando reconectar em{' '}
+              <span className="bg-amber-950 px-2 py-0.5 rounded text-amber-200 font-mono text-sm font-black mx-1">
+                {retryCountdown}s
+              </span>{' '}
+              (Tentativa {retryAttempt} de {BACKOFF_DELAYS.length}: após {BACKOFF_DELAYS[retryAttempt - 1] || 2}s)...
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              cancelRetryTimer();
+              fetchAllData(0);
+            }}
+            className="px-3 py-1 bg-amber-800 hover:bg-amber-900 text-white rounded-lg text-xs font-bold transition-all shrink-0 border border-amber-500 shadow-xs cursor-pointer flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Tentar Agora</span>
+          </button>
+        </div>
+      )}
+
+      {/* Connection Failure Banner when all 3 backoff attempts fail */}
+      {syncState === 'ERROR' && retryCountdown === null && (
+        <div className="bg-red-700 text-white text-xs py-2.5 px-4 border-b border-red-800 flex items-center justify-between gap-3 font-medium shadow-md">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <WifiOff className="w-4 h-4 text-red-200 shrink-0" />
+            <span>
+              <strong>Falha na Rede / Servidor Indisponível.</strong> As 3 tentativas de reconexão automática (2s, 5s, 10s) falharam.
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setRetryAttempt(0);
+              fetchAllData(0);
+            }}
+            className="px-3 py-1 bg-white text-red-800 hover:bg-red-50 rounded-lg text-xs font-black transition-all shrink-0 shadow-sm cursor-pointer flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3 text-red-700" />
+            <span>Tentar Reconectar</span>
+          </button>
+        </div>
+      )}
+
       {/* Waterfall Diagnostic Sync Loading / Timeout Banner */}
-      {(loadingEndpoint || timeoutEndpoints.length > 0) && (
+      {(loadingEndpoint || timeoutEndpoints.length > 0) && retryCountdown === null && (
         <div className="bg-slate-900 text-white text-xs px-4 py-2 border-b border-slate-800 flex items-center justify-between gap-3 font-mono">
           <div className="flex items-center gap-2 overflow-hidden">
             {loadingEndpoint ? (
@@ -736,7 +859,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => fetchAllData()}
+              onClick={() => fetchAllData(0)}
               className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-sans text-[11px] font-bold flex items-center gap-1 transition-colors"
             >
               <RefreshCw className="w-3 h-3" />

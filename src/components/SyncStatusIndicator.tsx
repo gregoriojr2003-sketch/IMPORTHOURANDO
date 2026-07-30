@@ -23,36 +23,41 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ classN
     }
 
     setStatus('checking');
-    const startTime = performance.now();
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
+    // Perform up to 2 attempts with backoff before declaring network error
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const startTime = performance.now();
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout for container startup
 
-      const response = await fetch('/api/health', {
-        method: 'GET',
-        headers: { 'Cache-Control': 'no-cache' },
-        signal: controller.signal
-      });
+        const response = await fetch('/api/health', {
+          method: 'GET',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
+          signal: controller.signal
+        });
 
-      clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
 
-      const endTime = performance.now();
-      const measuredLatency = Math.round(endTime - startTime);
-
-      if (response.ok) {
-        setStatus('connected');
-        setLatency(measuredLatency);
-      } else {
-        setStatus('error');
-        setLatency(null);
+        if (response.ok) {
+          const endTime = performance.now();
+          const measuredLatency = Math.round(endTime - startTime);
+          setStatus('connected');
+          setLatency(measuredLatency);
+          setLastCheckTime(new Date().toLocaleTimeString('pt-BR'));
+          return;
+        }
+      } catch (err) {
+        if (attempt < 2) {
+          // Wait 600ms before retrying second ping
+          await new Promise(r => setTimeout(r, 600));
+        }
       }
-    } catch (err) {
-      setStatus('error');
-      setLatency(null);
-    } finally {
-      setLastCheckTime(new Date().toLocaleTimeString('pt-BR'));
     }
+
+    setStatus('error');
+    setLatency(null);
+    setLastCheckTime(new Date().toLocaleTimeString('pt-BR'));
   }, []);
 
   // Initial check & interval
