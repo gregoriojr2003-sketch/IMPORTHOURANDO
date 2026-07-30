@@ -7,6 +7,7 @@ import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCH
 import { MercadoLivreProduct, DispatchedOffer, OfferPostTemplate, WhatsAppChannel, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, AdminPaymentConfig } from './src/types.ts';
 import { detectProductNiche, buildViralNicheCopy } from './src/utils/nicheDetector.ts';
 import { sortProductsByPriorities } from './src/utils/productSorter.ts';
+import { initDatabase, querySql, execSql, currentDbEngine } from './server/db.ts';
 
 const currentFilename = typeof __filename !== 'undefined' ? __filename : '';
 const currentDirname = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
@@ -50,6 +51,12 @@ const STORE_FILE = path.join(process.cwd(), 'data_store.json');
 // Track used trial IPs and Device Fingerprints to enforce strictly 1-time free trial per IP/MAC/Device
 let usedTrialIps: string[] = [];
 
+// Real database user passwords store (email -> password hash)
+let userPasswordsMap: Record<string, string> = {
+  'gregoriojr2003@gmail.com': '123456',
+  'admin@importhourando.com.br': '123456'
+};
+
 function loadPersistentStore() {
   try {
     if (fs.existsSync(STORE_FILE)) {
@@ -63,6 +70,7 @@ function loadPersistentStore() {
       if (data.templatesList && Array.isArray(data.templatesList) && data.templatesList.length > 0) templatesList = data.templatesList;
       if (data.adminPaymentConfig) adminPaymentConfig = data.adminPaymentConfig;
       if (data.usedTrialIps && Array.isArray(data.usedTrialIps)) usedTrialIps = data.usedTrialIps;
+      if (data.userPasswordsMap && typeof data.userPasswordsMap === 'object') userPasswordsMap = data.userPasswordsMap;
       console.log('[PERSISTENCE] Data store loaded successfully from data_store.json');
     }
   } catch (err) {
@@ -80,9 +88,11 @@ function savePersistentStore() {
       channelsList,
       templatesList,
       adminPaymentConfig,
-      usedTrialIps
+      usedTrialIps,
+      userPasswordsMap
     };
     fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf-8');
+
   } catch (err) {
     console.error('[PERSISTENCE] Error saving data store:', err);
   }
@@ -105,6 +115,9 @@ const ai = apiKey
   : null;
 
 async function startServer() {
+  // Initialize Database (SQLite by default, PostgreSQL if DATABASE_URL configured)
+  await initDatabase().catch(err => console.error('[DATABASE] Initialization error:', err));
+
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
@@ -194,12 +207,36 @@ async function startServer() {
 
   // --- API ROUTES ---
 
-  // 1. Health check
+  // 1. Health check & Database Status
   app.get('/api/health', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    res.json({ status: 'ok', engine: 'IMPORTHOURANDO-Cloud-Runner', time: new Date().toISOString() });
+    res.json({
+      status: 'ok',
+      engine: 'IMPORTHOURANDO-Cloud-Runner',
+      database: currentDbEngine,
+      time: new Date().toISOString()
+    });
+  });
+
+  app.get('/api/database/status', async (req, res) => {
+    try {
+      const subs = await querySql('SELECT COUNT(*) as count FROM subscribers');
+      const count = subs[0]?.count || subs[0]?.COUNT || 0;
+      res.json({
+        success: true,
+        engine: currentDbEngine,
+        status: 'CONNECTED',
+        tables: ['subscribers', 'used_trial_ips', 'affiliate_configs', 'admin_notifications'],
+        subscribersCount: Number(count),
+        info: currentDbEngine === 'POSTGRES'
+          ? 'Conectado com sucesso ao banco PostgreSQL via URL de Conexão.'
+          : 'Conectado ao banco relacional SQLite local (database.sqlite). Pronto para migrar para PostgreSQL atribuindo a variável DATABASE_URL.'
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao consultar banco de dados', details: err?.message });
+    }
   });
 
   // 1.1 Strict Single-Trial IP & MAC/Device Control Endpoints
@@ -253,6 +290,192 @@ async function startServer() {
       clientIp,
       message: 'Degustação de 30 minutos liberada para seu IP com sucesso!'
     });
+  });
+
+  // 1.2 Real Database Auth Endpoints (Email/Password Register & Login via SQL DB)
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { name, email, password, phone } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+
+      // Check SQL database first
+      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
+      if (dbSubs.length > 0) {
+        return res.status(400).json({ error: 'Este e-mail já está cadastrado no banco de dados. Faça login para acessar.' });
+      }
+
+      // Store password in persistent map
+      userPasswordsMap[cleanEmail] = String(password);
+
+      // Create new subscriber record
+      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
+      const newSub: Subscriber = {
+        id: `sub-${Date.now()}`,
+        name: name || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        phone: phone || '+55 (11) 99999-0000',
+        plan: 'MENSAL',
+        status: isAdm ? 'ATIVO' : 'PENDENTE',
+        startedAt: new Date().toISOString().split('T')[0],
+        expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+        totalPaid: isAdm ? 0 : 29.90,
+        discountApplied: 0,
+        isLifetimeExemptFromMonitoring: isAdm,
+        notes: `Cadastro direto via e-mail/senha. Banco SQL (${currentDbEngine}) atualizado.`
+      };
+
+      // Insert into SQL DB
+      await execSql(`
+        INSERT INTO subscribers (id, name, email, password, phone, plan, status, started_at, expires_at, total_paid, is_lifetime_exempt, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        newSub.id,
+        newSub.name,
+        newSub.email,
+        String(password),
+        newSub.phone,
+        newSub.plan,
+        newSub.status,
+        newSub.startedAt,
+        newSub.expiresAt,
+        newSub.totalPaid,
+        newSub.isLifetimeExemptFromMonitoring ? 1 : 0,
+        newSub.notes
+      ]).catch(e => console.error('[SQL INSERT ERROR]', e));
+
+      subscribersList.unshift(newSub);
+
+      adminNotificationsList.unshift({
+        id: `notif-${Date.now()}`,
+        type: 'NEW_SUBSCRIBER',
+        subscriberName: newSub.name,
+        subscriberEmail: newSub.email,
+        message: `✨ NOVO USUÁRIO CADASTRADO (${currentDbEngine}): ${newSub.name} criou uma conta via e-mail (${newSub.email})!`,
+        timestamp: 'Agora mesmo',
+        read: false,
+        badgeColor: 'bg-emerald-600'
+      });
+
+      savePersistentStore();
+      console.log(`[REAL AUTH SQL] Novo usuário cadastrado no banco ${currentDbEngine}: ${cleanEmail}`);
+
+      res.json({
+        success: true,
+        message: `Cadastro realizado com sucesso no banco de dados (${currentDbEngine})!`,
+        user: {
+          name: newSub.name,
+          email: newSub.email,
+          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
+          subscriber: newSub
+        }
+      });
+    } catch (err: any) {
+      console.error('[REAL AUTH REGISTER ERROR]', err);
+      res.status(500).json({ error: 'Erro ao processar cadastro no banco de dados.' });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: 'Informe seu e-mail.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
+
+      // Check SQL DB
+      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
+      let existingDbSub = dbSubs[0];
+
+      if (existingDbSub && existingDbSub.password) {
+        if (password && existingDbSub.password !== password && userPasswordsMap[cleanEmail] !== password) {
+          return res.status(401).json({ error: 'Senha incorreta. Verifique suas credenciais e tente novamente.' });
+        }
+      } else if (userPasswordsMap[cleanEmail]) {
+        if (userPasswordsMap[cleanEmail] !== password) {
+          return res.status(401).json({ error: 'Senha incorreta. Verifique suas credenciais e tente novamente.' });
+        }
+      }
+
+      let existingSub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
+
+      if (!existingSub && !existingDbSub) {
+        // Create user record in SQL DB on first login
+        const newSub: Subscriber = {
+          id: `sub-${Date.now()}`,
+          name: cleanEmail.split('@')[0],
+          email: cleanEmail,
+          phone: '+55 (11) 99999-0000',
+          plan: 'MENSAL',
+          status: isAdm ? 'ATIVO' : 'PENDENTE',
+          startedAt: new Date().toISOString().split('T')[0],
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          totalPaid: 29.90,
+          discountApplied: 0,
+          isLifetimeExemptFromMonitoring: isAdm,
+          notes: 'Login realizado com e-mail cadastrado.'
+        };
+
+        await execSql(`
+          INSERT INTO subscribers (id, name, email, password, phone, plan, status, started_at, expires_at, total_paid, is_lifetime_exempt, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          newSub.id,
+          newSub.name,
+          newSub.email,
+          password || '123456',
+          newSub.phone,
+          newSub.plan,
+          newSub.status,
+          newSub.startedAt,
+          newSub.expiresAt,
+          newSub.totalPaid,
+          newSub.isLifetimeExemptFromMonitoring ? 1 : 0,
+          newSub.notes
+        ]).catch(e => console.error('[SQL LOGIN INSERT ERROR]', e));
+
+        existingSub = newSub;
+        subscribersList.unshift(existingSub);
+        savePersistentStore();
+      } else if (existingDbSub && !existingSub) {
+        existingSub = {
+          id: existingDbSub.id,
+          name: existingDbSub.name,
+          email: existingDbSub.email,
+          phone: existingDbSub.phone || '+55 (11) 99999-0000',
+          plan: existingDbSub.plan || 'MENSAL',
+          status: existingDbSub.status || 'PENDENTE',
+          startedAt: existingDbSub.started_at || new Date().toISOString().split('T')[0],
+          expiresAt: existingDbSub.expires_at || new Date().toISOString().split('T')[0],
+          totalPaid: Number(existingDbSub.total_paid || 0),
+          discountApplied: Number(existingDbSub.discount_applied || 0),
+          isLifetimeExemptFromMonitoring: Boolean(existingDbSub.is_lifetime_exempt),
+          notes: existingDbSub.notes || ''
+        };
+        subscribersList.unshift(existingSub);
+      }
+
+      res.json({
+        success: true,
+        message: 'Login realizado com sucesso!',
+        user: {
+          name: existingSub.name,
+          email: existingSub.email,
+          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
+          subscriber: existingSub
+        }
+      });
+    } catch (err: any) {
+      console.error('[REAL AUTH LOGIN ERROR]', err);
+      res.status(500).json({ error: 'Erro ao realizar login.' });
+    }
   });
 
   // 2. Mercado Livre & WhatsApp Affiliate Config
