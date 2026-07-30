@@ -87,55 +87,6 @@ async function startServer() {
     next();
   });
 
-  // --- SECURE COOKIES MIDDLEWARE ---
-  // Guarantees all cookies (including GAESA, session, custom cookies) get Secure, HttpOnly, SameSite=Lax
-  app.use((req, res, next) => {
-    // 1. Proactively secure GAESA cookie if present in request headers
-    const rawCookies = req.headers.cookie || '';
-    if (rawCookies.includes('GAESA=')) {
-      const match = rawCookies.match(/GAESA=([^;]+)/);
-      if (match && match[1]) {
-        const gaesaVal = match[1].trim();
-        const secureGaesa = `GAESA=${gaesaVal}; Path=/; Secure; HttpOnly; SameSite=Lax`;
-        const currentSetCookie = res.getHeader('Set-Cookie');
-
-        if (!currentSetCookie) {
-          res.setHeader('Set-Cookie', secureGaesa);
-        } else if (Array.isArray(currentSetCookie)) {
-          if (!currentSetCookie.some(c => String(c).startsWith('GAESA='))) {
-            res.setHeader('Set-Cookie', [...currentSetCookie, secureGaesa]);
-          }
-        } else if (typeof currentSetCookie === 'string') {
-          if (!currentSetCookie.startsWith('GAESA=')) {
-            res.setHeader('Set-Cookie', [currentSetCookie, secureGaesa]);
-          }
-        }
-      }
-    }
-
-    // 2. Intercept any outgoing Set-Cookie header to enforce Secure, HttpOnly, SameSite=Lax
-    const originalSetHeader = res.setHeader;
-    res.setHeader = function (name: string, value: any) {
-      if (typeof name === 'string' && name.toLowerCase() === 'set-cookie') {
-        const formatCookie = (cookieStr: string) => {
-          let updated = String(cookieStr);
-          if (!/;\s*Secure/i.test(updated)) updated += '; Secure';
-          if (!/;\s*HttpOnly/i.test(updated)) updated += '; HttpOnly';
-          if (!/;\s*SameSite/i.test(updated)) updated += '; SameSite=Lax';
-          return updated;
-        };
-
-        if (Array.isArray(value)) {
-          value = value.map(c => formatCookie(c));
-        } else if (typeof value === 'string') {
-          value = formatCookie(value);
-        }
-      }
-      return originalSetHeader.call(this, name, value);
-    };
-    next();
-  });
-
   app.use(express.json());
 
   // --- API ROUTES ---
