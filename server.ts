@@ -47,6 +47,9 @@ let processedMlOfferIds: Set<string> = new Set();
 // Persistent Disk Store File Setup
 const STORE_FILE = path.join(process.cwd(), 'data_store.json');
 
+// Track used trial IPs and Device Fingerprints to enforce strictly 1-time free trial per IP/MAC/Device
+let usedTrialIps: string[] = [];
+
 function loadPersistentStore() {
   try {
     if (fs.existsSync(STORE_FILE)) {
@@ -59,6 +62,7 @@ function loadPersistentStore() {
       if (data.channelsList && Array.isArray(data.channelsList) && data.channelsList.length > 0) channelsList = data.channelsList;
       if (data.templatesList && Array.isArray(data.templatesList) && data.templatesList.length > 0) templatesList = data.templatesList;
       if (data.adminPaymentConfig) adminPaymentConfig = data.adminPaymentConfig;
+      if (data.usedTrialIps && Array.isArray(data.usedTrialIps)) usedTrialIps = data.usedTrialIps;
       console.log('[PERSISTENCE] Data store loaded successfully from data_store.json');
     }
   } catch (err) {
@@ -75,7 +79,8 @@ function savePersistentStore() {
       subscribersList,
       channelsList,
       templatesList,
-      adminPaymentConfig
+      adminPaymentConfig,
+      usedTrialIps
     };
     fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
@@ -173,6 +178,20 @@ async function startServer() {
     }
   }
 
+  // Helper function to extract client IP address accurately
+  function getClientIp(req: express.Request): string {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.length > 0) {
+      return forwarded.split(',')[0].trim();
+    }
+    if (Array.isArray(forwarded) && forwarded.length > 0) {
+      return forwarded[0].trim();
+    }
+    const realIp = req.headers['x-real-ip'];
+    if (typeof realIp === 'string' && realIp.length > 0) return realIp.trim();
+    return req.socket.remoteAddress || '127.0.0.1';
+  }
+
   // --- API ROUTES ---
 
   // 1. Health check
@@ -181,6 +200,59 @@ async function startServer() {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
     res.json({ status: 'ok', engine: 'IMPORTHOURANDO-Cloud-Runner', time: new Date().toISOString() });
+  });
+
+  // 1.1 Strict Single-Trial IP & MAC/Device Control Endpoints
+  app.get('/api/trial/check', (req, res) => {
+    const clientIp = getClientIp(req);
+    const deviceFp = req.query.deviceFingerprint ? String(req.query.deviceFingerprint) : '';
+
+    const isIpUsed = usedTrialIps.includes(clientIp);
+    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
+    const used = isIpUsed || isDeviceUsed;
+
+    res.json({
+      used,
+      clientIp,
+      message: used 
+        ? `Este endereço IP (${clientIp}) ou dispositivo já utilizou o teste grátis de 30 minutos.`
+        : `Degustação de 30 minutos disponível para o IP ${clientIp}.`
+    });
+  });
+
+  app.post('/api/trial/claim', (req, res) => {
+    const clientIp = getClientIp(req);
+    const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
+
+    const isIpUsed = usedTrialIps.includes(clientIp);
+    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
+
+    if (isIpUsed || isDeviceUsed) {
+      console.warn(`[TRIAL BLOCKED] Endereço IP ${clientIp} (Device: ${deviceFp || 'N/A'}) tentou iniciar nova degustação, mas já havia utilizado.`);
+      return res.status(403).json({
+        allowed: false,
+        error: 'TRIAL_EXHAUSTED',
+        clientIp,
+        message: `O seu endereço IP (${clientIp}) ou dispositivo já realizou a degustação de 30 minutos! É necessário criar uma conta e assinar um plano para usar o aplicativo.`
+      });
+    }
+
+    // Register IP and Device Fingerprint as used
+    if (!usedTrialIps.includes(clientIp)) {
+      usedTrialIps.push(clientIp);
+    }
+    if (deviceFp && !usedTrialIps.includes(deviceFp)) {
+      usedTrialIps.push(deviceFp);
+    }
+
+    savePersistentStore();
+    console.log(`[TRIAL CLAIMED] Degustação de 30 min iniciada com sucesso para o IP: ${clientIp} (Device: ${deviceFp || 'N/A'})`);
+
+    res.json({
+      allowed: true,
+      clientIp,
+      message: 'Degustação de 30 minutos liberada para seu IP com sucesso!'
+    });
   });
 
   // 2. Mercado Livre & WhatsApp Affiliate Config

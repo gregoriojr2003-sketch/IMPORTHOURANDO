@@ -178,6 +178,7 @@ export default function App() {
   // Tour Mode Paywall Gate State
   const [isSubscriptionPaywallOpen, setIsSubscriptionPaywallOpen] = useState(false);
   const [paywallActionName, setPaywallActionName] = useState('colocar o robô para funcionar');
+  const [expiredTrialNotice, setExpiredTrialNotice] = useState<string | undefined>(undefined);
 
   // Dark Mode State with localStorage & document element class toggle
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -233,7 +234,14 @@ export default function App() {
       setTrialSecondsLeft(left);
 
       if (left <= 0) {
-        setCurrentSubscriber(prev => ({ ...prev, status: 'EXPIRADO' }));
+        try {
+          localStorage.setItem('importhourando_degustacao_used', 'true');
+        } catch (e) {}
+
+        setExpiredTrialNotice('Sua degustação gratuita de 30 minutos expirou! Por favor, faça seu cadastro ou login com Google, Facebook ou e-mail abaixo e escolha um dos nossos planos para ativar seu acesso.');
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+        setCurrentSubscriber(prev => prev ? ({ ...prev, status: 'EXPIRADO' }) : null);
         setPaywallActionName('Sua degustação grátis de 30 minutos expirou! Escolha um dos nossos planos para continuar disparando ofertas com o robô.');
         setIsSubscriptionPaywallOpen(true);
         clearInterval(timer);
@@ -713,6 +721,16 @@ export default function App() {
     } catch (e) {
       console.error('Session error', e);
     }
+
+    // Require subscription for non-admin users if degustacao is used or status is PENDENTE / EXPIRADO
+    const isDegustacaoUsed = typeof window !== 'undefined' && localStorage.getItem('importhourando_degustacao_used') === 'true';
+    if (!isAdm && user.subscriber?.status !== 'CORTESIA' && !user.subscriber?.isCourtesy) {
+      if (user.subscriber?.status === 'PENDENTE' || user.subscriber?.status === 'EXPIRADO' || isDegustacaoUsed) {
+        setPaywallActionName('Sua degustação de 30 minutos expirou! Escolha um dos nossos planos para assinar e liberar as ferramentas do robô.');
+        setIsSubscriptionPaywallOpen(true);
+        setActiveTab('plans');
+      }
+    }
   };
 
   const handleLogout = () => {
@@ -744,6 +762,7 @@ export default function App() {
       <LoginScreen
         subscribers={subscribers}
         onLoginSuccess={handleLoginSuccess}
+        expiredTrialNotice={expiredTrialNotice}
       />
     );
   }

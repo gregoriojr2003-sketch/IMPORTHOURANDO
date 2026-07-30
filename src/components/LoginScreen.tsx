@@ -1,20 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Zap } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { Subscriber } from '../types';
+import { getDeviceFingerprint } from '../utils/deviceFingerprint';
 
 interface LoginScreenProps {
   subscribers: Subscriber[];
   onLoginSuccess: (user: { name: string; email: string; role: 'ADMIN' | 'SUBSCRIBER'; subscriber?: Subscriber }) => void;
+  expiredTrialNotice?: string;
 }
 
 type AuthMode = 'LOGIN' | 'REGISTER' | 'RECOVER';
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   subscribers,
-  onLoginSuccess
+  onLoginSuccess,
+  expiredTrialNotice
 }) => {
-  const [mode, setMode] = useState<AuthMode>('LOGIN');
+  const isLocalStorageTrialUsed = typeof window !== 'undefined' && localStorage.getItem('importhourando_degustacao_used') === 'true';
+  const [isIpUsedOnServer, setIsIpUsedOnServer] = useState<boolean>(false);
+  const [serverIpNotice, setServerIpNotice] = useState<string | null>(null);
+
+  const isTrialUsed = isLocalStorageTrialUsed || isIpUsedOnServer;
+  const [mode, setMode] = useState<AuthMode>(() => (expiredTrialNotice || isLocalStorageTrialUsed) ? 'REGISTER' : 'LOGIN');
+
+  // Check IP & Device Fingerprint trial status on mount
+  useEffect(() => {
+    const checkIpTrial = async () => {
+      try {
+        const fp = getDeviceFingerprint();
+        const res = await fetch(`/api/trial/check?deviceFingerprint=${encodeURIComponent(fp)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.used) {
+            setIsIpUsedOnServer(true);
+            setServerIpNotice(data.message || 'Seu endereço IP ou dispositivo já utilizou a degustação de 30 minutos.');
+            try {
+              localStorage.setItem('importhourando_degustacao_used', 'true');
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.error('Error checking IP trial status:', err);
+      }
+    };
+    checkIpTrial();
+  }, []);
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
@@ -36,41 +67,73 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Handle 30-minute guest trial start
+  // Handle 30-minute guest trial start with IP & Device Fingerprint enforcement
   const handleStartGuest30MinTrial = async () => {
     setIsLoading(true);
-    const guestSub: Subscriber = {
-      id: `trial-${Date.now()}`,
-      name: 'Visitante Degustação',
-      email: `degustacao_${Date.now().toString().slice(-6)}@importhourando.com.br`,
-      phone: '+55 (11) 99999-0000',
-      plan: 'MENSAL',
-      status: 'DEGUSTACAO',
-      startedAt: new Date().toISOString().split('T')[0],
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-      totalPaid: 0,
-      discountApplied: 0,
-      isLifetimeExemptFromMonitoring: false,
-      notes: 'Degustação grátis de 30 minutos iniciada'
-    };
+    setError('');
 
     try {
+      const fp = getDeviceFingerprint();
+      const claimRes = await fetch('/api/trial/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceFingerprint: fp })
+      });
+
+      const claimData = await claimRes.json();
+
+      if (!claimRes.ok || !claimData.allowed) {
+        setIsIpUsedOnServer(true);
+        try {
+          localStorage.setItem('importhourando_degustacao_used', 'true');
+        } catch (e) {}
+
+        const blockMsg = claimData.message || 'Seu endereço IP ou dispositivo já utilizou a degustação gratuita de 30 minutos!';
+        setError(blockMsg);
+        setServerIpNotice(blockMsg);
+        setMode('REGISTER');
+        setIsLoading(false);
+        return;
+      }
+
+      // Trial allowed: Mark local storage and proceed
+      try {
+        localStorage.setItem('importhourando_degustacao_used', 'true');
+      } catch (e) {}
+
+      const guestSub: Subscriber = {
+        id: `trial-${Date.now()}`,
+        name: 'Visitante Degustação',
+        email: `degustacao_${Date.now().toString().slice(-6)}@importhourando.com.br`,
+        phone: '+55 (11) 99999-0000',
+        plan: 'MENSAL',
+        status: 'DEGUSTACAO',
+        startedAt: new Date().toISOString().split('T')[0],
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        totalPaid: 0,
+        discountApplied: 0,
+        isLifetimeExemptFromMonitoring: false,
+        notes: `Degustação grátis de 30 minutos iniciada (IP: ${claimData.clientIp || 'N/A'})`
+      };
+
       await fetch('/api/admin/subscribers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(guestSub)
       });
-    } catch (e) {
-      console.error(e);
-    }
 
-    onLoginSuccess({
-      name: guestSub.name,
-      email: guestSub.email,
-      role: 'SUBSCRIBER',
-      subscriber: guestSub
-    });
-    setIsLoading(false);
+      onLoginSuccess({
+        name: guestSub.name,
+        email: guestSub.email,
+        role: 'SUBSCRIBER',
+        subscriber: guestSub
+      });
+    } catch (e: any) {
+      console.error('Error claiming trial:', e);
+      setError('Ocorreu uma falha ao conectar ao servidor para validar a degustação. Tente novamente.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Switch modes safely clearing errors
@@ -259,20 +322,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           subscriber: existingSub
         });
       } else {
-        // Create new subscriber via Social Login
+        // Create new subscriber via Social Login (Status PENDENTE requiring subscription)
         const newSocialSub: Subscriber = {
           id: `sub-social-${Date.now()}`,
           name: providerName,
           email: providerEmail,
           phone: providerPhone,
           plan: 'MENSAL',
-          status: 'ATIVO',
+          status: 'PENDENTE',
           startedAt: new Date().toISOString().split('T')[0],
           expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
           totalPaid: 29.90,
           discountApplied: 0,
           isLifetimeExemptFromMonitoring: false,
-          notes: `Cadastro e login automático realizado via ${provider}`
+          notes: `Cadastro realizado via ${provider}. Aguardando ativação de assinatura.`
         };
 
         // Persist to backend server
@@ -403,7 +466,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </p>
             </div>
 
-            {/* Error or Success Alert Banners */}
+            {/* Error, Success, or Expired Trial Alert Banners */}
+            {(expiredTrialNotice || isTrialUsed) && (
+              <div className="mb-4 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-400/25 to-amber-500/15 border-2 border-amber-400 text-amber-950 text-xs font-semibold flex items-start gap-3 shadow-sm animate-fade-in">
+                <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+                <div className="space-y-1">
+                  <strong className="block text-xs font-black text-amber-900">
+                    Sua degustação gratuita de 30 minutos expirou ou já foi utilizada! ⌛
+                  </strong>
+                  <p className="text-[11px] text-amber-900/90 leading-relaxed font-medium">
+                    {serverIpNotice || expiredTrialNotice || 'A degustação é liberada apenas 1 única vez por IP/Dispositivo. Para utilizar os disparos de ofertas, faça seu cadastro ou login abaixo e assine um dos nossos planos.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {error && (
               <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2 animate-shake">
                 <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
@@ -422,27 +499,45 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             {mode === 'LOGIN' && (
               <div className="space-y-4">
                 {/* 30-Min Free Trial Entry Banner */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-400/20 to-amber-500/10 border-2 border-amber-400/80 shadow-md">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-900 px-2 py-0.5 rounded-full shadow-xs">
-                      <Sparkles className="w-3 h-3" /> Degustação Sem Limite
-                    </span>
-                    <span className="text-[10px] text-amber-800 font-extrabold">30 Minutos Grátis</span>
+                {isTrialUsed ? (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border-2 border-amber-400/50">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full shadow-xs">
+                        <Sparkles className="w-3 h-3 text-amber-700" /> Degustação Utilizada
+                      </span>
+                      <span className="text-[10px] text-amber-800 font-extrabold">30 Min Expirados</span>
+                    </div>
+                    <div className="w-full py-2.5 px-4 rounded-xl bg-amber-100 border border-amber-300 text-amber-900 font-extrabold text-xs flex items-center justify-center gap-2 cursor-not-allowed opacity-90">
+                      <Zap className="w-4 h-4 text-amber-700" />
+                      <span>⚡ DEGUSTAÇÃO GRÁTIS DE 30 MIN ENCERRADA</span>
+                    </div>
+                    <p className="text-[10px] text-amber-900/80 font-medium text-center mt-1.5">
+                      Faça login ou crie sua conta com Google, Facebook ou e-mail abaixo e escolha um plano de assinatura para liberar o uso.
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleStartGuest30MinTrial}
-                    disabled={isLoading}
-                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-98 cursor-pointer group"
-                  >
-                    <Zap className="w-4 h-4 fill-current text-slate-900 group-hover:scale-110 transition-transform" />
-                    <span>⚡ ENTRAR AGORA: TESTAR 30 MINUTOS GRÁTIS</span>
-                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                  </button>
-                  <p className="text-[10px] text-slate-600 font-medium text-center mt-1.5">
-                    Acesso imediato com todas as funções liberadas • Sem cadastro prévio
-                  </p>
-                </div>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-400/20 to-amber-500/10 border-2 border-amber-400/80 shadow-md">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-900 px-2 py-0.5 rounded-full shadow-xs">
+                        <Sparkles className="w-3 h-3" /> Degustação Sem Limite
+                      </span>
+                      <span className="text-[10px] text-amber-800 font-extrabold">30 Minutos Grátis</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleStartGuest30MinTrial}
+                      disabled={isLoading}
+                      className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-98 cursor-pointer group"
+                    >
+                      <Zap className="w-4 h-4 fill-current text-slate-900 group-hover:scale-110 transition-transform" />
+                      <span>⚡ ENTRAR AGORA: TESTAR 30 MINUTOS GRÁTIS</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                    <p className="text-[10px] text-slate-600 font-medium text-center mt-1.5">
+                      Acesso imediato com todas as funções liberadas • Sem cadastro prévio
+                    </p>
+                  </div>
+                )}
 
                 {/* Social Login Options */}
                 <div className="space-y-2">
