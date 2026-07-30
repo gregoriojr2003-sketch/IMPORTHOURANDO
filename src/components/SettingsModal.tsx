@@ -49,6 +49,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [whatsappInstance, setWhatsappInstance] = useState(config.whatsappInstance);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  React.useEffect(() => {
+    if (isOpen && config) {
+      if (config.marketplaceAccounts) {
+        setMarketplaceAccounts(config.marketplaceAccounts);
+      }
+      if (config.brandVoice) {
+        setBrandVoice(config.brandVoice);
+      }
+      if (config.defaultChannelInviteLink) {
+        setDefaultChannelInviteLink(config.defaultChannelInviteLink);
+      }
+      if (config.customDomain !== undefined) setCustomDomain(config.customDomain);
+      if (config.whatsappApiType !== undefined) setWhatsappApiType(config.whatsappApiType);
+      if (config.whatsappToken !== undefined) setWhatsappToken(config.whatsappToken);
+      if (config.whatsappInstance !== undefined) setWhatsappInstance(config.whatsappInstance);
+    }
+  }, [isOpen, config]);
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {

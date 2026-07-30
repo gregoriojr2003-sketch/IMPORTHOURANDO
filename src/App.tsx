@@ -18,6 +18,7 @@ import { LoginModal } from './components/LoginModal';
 import { LoginScreen } from './components/LoginScreen';
 import { PriceAlertsModal } from './components/PriceAlertsModal';
 import { SubscriptionPaywallModal } from './components/SubscriptionPaywallModal';
+import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 import { MercadoLivreProduct, WhatsAppChannel, OfferPostTemplate, DispatchedOffer, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, PriceAlertRule } from './types';
 import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCHED_LOGS, INITIAL_SCHEDULER_CONFIG, INITIAL_AFFILIATE_CONFIG, INITIAL_SUBSCRIBERS, INITIAL_ADMIN_NOTIFICATIONS, INITIAL_PRICE_ALERTS } from './data/initialData';
@@ -31,7 +32,14 @@ export default function App() {
   const [templates, setTemplates] = useState<OfferPostTemplate[]>(INITIAL_TEMPLATES);
   const [dispatchedLogs, setDispatchedLogs] = useState<DispatchedOffer[]>(INITIAL_DISPATCHED_LOGS);
   const [schedulerConfig, setSchedulerConfig] = useState<AutoSchedulerConfig>(INITIAL_SCHEDULER_CONFIG);
-  const [affiliateConfig, setAffiliateConfig] = useState<AffiliateConfig>(INITIAL_AFFILIATE_CONFIG);
+  const [affiliateConfig, setAffiliateConfig] = useState<AffiliateConfig>(() => {
+    try {
+      const saved = localStorage.getItem('importhourando_affiliate_config');
+      return saved ? JSON.parse(saved) : INITIAL_AFFILIATE_CONFIG;
+    } catch (e) {
+      return INITIAL_AFFILIATE_CONFIG;
+    }
+  });
 
   // Subscribers State
   const [subscribers, setSubscribers] = useState<Subscriber[]>(INITIAL_SUBSCRIBERS);
@@ -67,6 +75,16 @@ export default function App() {
   const [currentSubscriber, setCurrentSubscriber] = useState<Subscriber>(() => {
     return currentUser?.subscriber || INITIAL_SUBSCRIBERS[0];
   });
+
+  useEffect(() => {
+    if (currentUser && currentSubscriber) {
+      const updatedUser = { ...currentUser, subscriber: currentSubscriber };
+      try {
+        localStorage.setItem('importhourando_user', JSON.stringify(updatedUser));
+        sessionStorage.setItem('importhourando_user', JSON.stringify(updatedUser));
+      } catch (e) {}
+    }
+  }, [currentSubscriber]);
 
   // Modals state
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertRule[]>(INITIAL_PRICE_ALERTS);
@@ -176,26 +194,84 @@ export default function App() {
     totalNewOffersIdentified: 12
   });
 
-  // Sync state with server API
-  const fetchAllData = async () => {
-    try {
-      const [resConfig, resProds, resChans, resTmpls, resLogs, resSubs, resMlMon] = await Promise.all([
-        fetch('/api/config').then(r => r.json()).catch(() => null),
-        fetch('/api/products').then(r => r.json()).catch(() => null),
-        fetch('/api/whatsapp/channels').then(r => r.json()).catch(() => null),
-        fetch('/api/templates').then(r => r.json()).catch(() => null),
-        fetch('/api/dispatches').then(r => r.json()).catch(() => null),
-        fetch('/api/admin/subscribers').then(r => r.json()).catch(() => null),
-        fetch('/api/ml/monitor').then(r => r.json()).catch(() => null)
-      ]);
+  const [loadingEndpoint, setLoadingEndpoint] = useState<string | null>(null);
+  const [timeoutEndpoints, setTimeoutEndpoints] = useState<string[]>([]);
+  const [syncState, setSyncState] = useState<'IDLE' | 'LOADING' | 'SUCCESS' | 'ERROR'>('IDLE');
 
-      if (resConfig?.affiliateConfig) setAffiliateConfig(resConfig.affiliateConfig);
+  const fetchEndpointWithTimeout = async (url: string, timeoutMs = 5000) => {
+    setLoadingEndpoint(url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (err: any) {
+      clearTimeout(timer);
+      const isTimeout = err.name === 'AbortError' || err.message?.includes('aborted');
+      console.warn(`[WATERFALL FETCH] ${url} -> ${isTimeout ? 'TIMEOUT (5s)' : err.message}`);
+      setTimeoutEndpoints(prev => prev.includes(url) ? prev : [...prev, url]);
+      return null;
+    } finally {
+      setLoadingEndpoint(null);
+    }
+  };
+
+  // Sync state with server API via Sequential Waterfall Requests (5s timeout per request)
+  const fetchAllData = async () => {
+    setSyncState('LOADING');
+    setTimeoutEndpoints([]);
+    try {
+      // 1. /api/config
+      const resConfig = await fetchEndpointWithTimeout('/api/config', 5000);
+      if (resConfig?.affiliateConfig) {
+        const savedStr = localStorage.getItem('importhourando_affiliate_config');
+        const savedLocal = savedStr ? JSON.parse(savedStr) : null;
+
+        const mergedAccounts = {
+          ...INITIAL_AFFILIATE_CONFIG.marketplaceAccounts,
+          ...resConfig.affiliateConfig.marketplaceAccounts,
+          ...savedLocal?.marketplaceAccounts
+        };
+
+        const mergedAffiliate: AffiliateConfig = {
+          ...INITIAL_AFFILIATE_CONFIG,
+          ...resConfig.affiliateConfig,
+          ...savedLocal,
+          marketplaceAccounts: mergedAccounts
+        };
+
+        setAffiliateConfig(mergedAffiliate);
+        try {
+          localStorage.setItem('importhourando_affiliate_config', JSON.stringify(mergedAffiliate));
+        } catch (e) {}
+      }
       if (resConfig?.schedulerConfig) setSchedulerConfig(resConfig.schedulerConfig);
-      if (resMlMon?.config) setMlMonitorConfig(resMlMon.config);
+
+      // 2. /api/products
+      const resProds = await fetchEndpointWithTimeout('/api/products', 5000);
       if (resProds?.products) setProducts(resProds.products);
+
+      // 3. /api/whatsapp/channels
+      const resChans = await fetchEndpointWithTimeout('/api/whatsapp/channels', 5000);
       if (resChans?.channels) setChannels(resChans.channels);
+
+      // 4. /api/templates
+      const resTmpls = await fetchEndpointWithTimeout('/api/templates', 5000);
       if (resTmpls?.templates) setTemplates(resTmpls.templates);
+
+      // 5. /api/dispatches
+      const resLogs = await fetchEndpointWithTimeout('/api/dispatches', 5000);
       if (resLogs?.logs) setDispatchedLogs(resLogs.logs);
+
+      // 6. /api/admin/subscribers
+      const resSubs = await fetchEndpointWithTimeout('/api/admin/subscribers', 5000);
       if (resSubs?.subscribers) {
         setSubscribers(resSubs.subscribers);
         if (resSubs.notifications) setAdminNotifications(resSubs.notifications);
@@ -208,8 +284,15 @@ export default function App() {
           }
         }
       }
+
+      // 7. /api/ml/monitor
+      const resMlMon = await fetchEndpointWithTimeout('/api/ml/monitor', 5000);
+      if (resMlMon?.config) setMlMonitorConfig(resMlMon.config);
+
+      setSyncState('SUCCESS');
     } catch (e) {
-      console.log('Using default mock state');
+      console.error('[WATERFALL FETCH ERROR]', e);
+      setSyncState('ERROR');
     }
   };
 
@@ -248,9 +331,26 @@ export default function App() {
 
   const handleSaveConfig = async (updatedAffiliate?: Partial<AffiliateConfig>, updatedScheduler?: Partial<AutoSchedulerConfig>) => {
     if (!ensureActiveSubscription('salvar e alterar configurações de automação')) return;
+    
+    let mergedAffiliate = affiliateConfig;
+    if (updatedAffiliate) {
+      mergedAffiliate = {
+        ...affiliateConfig,
+        ...updatedAffiliate,
+        marketplaceAccounts: {
+          ...affiliateConfig.marketplaceAccounts,
+          ...updatedAffiliate.marketplaceAccounts
+        }
+      };
+      setAffiliateConfig(mergedAffiliate);
+      try {
+        localStorage.setItem('importhourando_affiliate_config', JSON.stringify(mergedAffiliate));
+      } catch (e) {}
+    }
+
     try {
       const payload: any = {};
-      if (updatedAffiliate) payload.affiliateConfig = updatedAffiliate;
+      if (updatedAffiliate) payload.affiliateConfig = mergedAffiliate;
       if (updatedScheduler) payload.schedulerConfig = updatedScheduler;
 
       const res = await fetch('/api/config', {
@@ -259,10 +359,27 @@ export default function App() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (data.affiliateConfig) setAffiliateConfig(data.affiliateConfig);
+      if (data.affiliateConfig) {
+        const finalAff = {
+          ...data.affiliateConfig,
+          marketplaceAccounts: {
+            ...mergedAffiliate.marketplaceAccounts,
+            ...data.affiliateConfig.marketplaceAccounts
+          }
+        };
+        setAffiliateConfig(finalAff);
+        try {
+          localStorage.setItem('importhourando_affiliate_config', JSON.stringify(finalAff));
+        } catch (e) {}
+      }
       if (data.schedulerConfig) setSchedulerConfig(data.schedulerConfig);
     } catch (e) {
-      if (updatedAffiliate) setAffiliateConfig({ ...affiliateConfig, ...updatedAffiliate });
+      if (updatedAffiliate) {
+        setAffiliateConfig(mergedAffiliate);
+        try {
+          localStorage.setItem('importhourando_affiliate_config', JSON.stringify(mergedAffiliate));
+        } catch (e) {}
+      }
       if (updatedScheduler) setSchedulerConfig({ ...schedulerConfig, ...updatedScheduler });
     }
   };
@@ -437,6 +554,8 @@ export default function App() {
     setIsLoginModalOpen(false);
 
     try {
+      localStorage.setItem('importhourando_auth', 'true');
+      localStorage.setItem('importhourando_user', JSON.stringify(userObj));
       sessionStorage.setItem('importhourando_auth', 'true');
       sessionStorage.setItem('importhourando_user', JSON.stringify(userObj));
     } catch (e) {
@@ -448,6 +567,8 @@ export default function App() {
     setIsAuthenticated(false);
     setCurrentUser(null);
     try {
+      localStorage.removeItem('importhourando_auth');
+      localStorage.removeItem('importhourando_user');
       sessionStorage.removeItem('importhourando_auth');
       sessionStorage.removeItem('importhourando_user');
     } catch (e) {
@@ -513,6 +634,39 @@ export default function App() {
         trialSecondsLeft={trialSecondsLeft}
         onOpenPaywall={() => setIsSubscriptionPaywallOpen(true)}
       />
+
+      {/* Waterfall Diagnostic Sync Loading / Timeout Banner */}
+      {(loadingEndpoint || timeoutEndpoints.length > 0) && (
+        <div className="bg-slate-900 text-white text-xs px-4 py-2 border-b border-slate-800 flex items-center justify-between gap-3 font-mono">
+          <div className="flex items-center gap-2 overflow-hidden">
+            {loadingEndpoint ? (
+              <>
+                <Loader2 className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />
+                <span className="text-slate-300">
+                  [WATERFALL SERVIDOR 5s] Sincronizando endpoint: <strong className="text-indigo-300">{loadingEndpoint}</strong>
+                </span>
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-slate-300">
+                  [WATERFALL DIAGNÓSTICO] Timeouts (5s) detectados em:{' '}
+                  <strong className="text-amber-300">{timeoutEndpoints.join(', ')}</strong>
+                </span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => fetchAllData()}
+              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-sans text-[11px] font-bold flex items-center gap-1 transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Re-sincronizar</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Global Client Mode Tour Banner / Subscription Status */}
       {userRole === 'SUBSCRIBER' && currentSubscriber.status !== 'ATIVO' && (

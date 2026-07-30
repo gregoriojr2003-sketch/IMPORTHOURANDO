@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Wifi, WifiOff, RefreshCw, Server, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, Server, CheckCircle2, AlertTriangle, ShieldCheck, Activity } from 'lucide-react';
+import { NetworkDiagnosticsModal } from './NetworkDiagnosticsModal';
 
 interface SyncStatusIndicatorProps {
   className?: string;
@@ -10,6 +11,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ classN
   const [latency, setLatency] = useState<number | null>(null);
   const [lastCheckTime, setLastCheckTime] = useState<string>('');
   const [isPopoverOpen, setIsPopoverOpen] = useState<boolean>(false);
+  const [isDiagModalOpen, setIsDiagModalOpen] = useState<boolean>(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const checkConnection = useCallback(async () => {
@@ -227,18 +229,37 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ classN
             </div>
           </div>
 
-          {/* Action Button */}
-          <button
-            type="button"
-            onClick={checkConnection}
-            disabled={status === 'checking'}
-            className="w-full py-2 px-3 rounded-xl bg-[#2D3277] hover:bg-indigo-900 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-sm"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${status === 'checking' ? 'animate-spin' : ''}`} />
-            <span>Testar Conexão Agora</span>
-          </button>
+          {/* Action Buttons */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={checkConnection}
+              disabled={status === 'checking'}
+              className="w-full py-2 px-3 rounded-xl bg-[#2D3277] hover:bg-indigo-900 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-sm"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${status === 'checking' ? 'animate-spin' : ''}`} />
+              <span>Testar Conexão Agora</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsPopoverOpen(false);
+                setIsDiagModalOpen(true);
+              }}
+              className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer border border-slate-200 dark:border-slate-700"
+            >
+              <Activity className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Painel Diagnóstico de Logs API</span>
+            </button>
+          </div>
         </div>
       )}
+
+      <NetworkDiagnosticsModal
+        isOpen={isDiagModalOpen}
+        onClose={() => setIsDiagModalOpen(false)}
+      />
     </div>
   );
 };
