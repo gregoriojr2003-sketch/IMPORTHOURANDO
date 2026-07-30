@@ -60,31 +60,29 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-  // --- SECURITY HEADERS MIDDLEWARE ---
+  // --- SECURITY & CORS HEADERS MIDDLEWARE ---
   app.use((req, res, next) => {
-    // 1. Content Security Policy (CSP)
+    // Enable CORS for all origins, methods, and headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Cache-Control, Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Content Security Policy permitting frame embedding in AI Studio and external previews
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https: http:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https: http: ws: wss:; frame-ancestors 'self' https: http:; object-src 'none'; base-uri 'self';"
+      "default-src 'self' https: http: data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https:; img-src 'self' data: blob: https: http:; font-src 'self' data: https://fonts.gstatic.com https:; connect-src 'self' https: http: ws: wss:; frame-ancestors *; object-src 'none'; base-uri 'self';"
     );
 
-    // 2. Strict Transport Security (HSTS)
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-
-    // 3. Anti-Clickjacking (X-Frame-Options & frame-ancestors)
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-
-    // 4. Prevent MIME-Type Sniffing (X-Content-Type-Options)
+    // Prevent MIME-Type Sniffing
     res.setHeader('X-Content-Type-Options', 'nosniff');
-
-    // 5. Referrer Policy
     res.setHeader('Referrer-Policy', 'no-referrer-when-downgrade');
-
-    // 6. Permissions Policy
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
-    // 7. XSS Protection
-    res.setHeader('X-XSS-Protection', '1; mode=block');
+    // Handle Preflight OPTIONS Request immediately
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
 
     next();
   });
