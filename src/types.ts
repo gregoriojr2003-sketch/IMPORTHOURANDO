@@ -143,7 +143,7 @@ export interface MLSearchFilter {
 }
 
 export type SubscriptionPlan = 'MENSAL' | 'SEMESTRAL' | 'ANUAL';
-export type SubscriberStatus = 'ATIVO' | 'CANCELADO' | 'RECONQUISTA_3M' | 'EXPIRADO' | 'PENDENTE';
+export type SubscriberStatus = 'ATIVO' | 'CANCELADO' | 'RECONQUISTA_3M' | 'EXPIRADO' | 'PENDENTE' | 'DEGUSTACAO';
 
 export interface Subscriber {
   id: string;

@@ -113,9 +113,41 @@ export default function App() {
     setIsDarkMode(prev => !prev);
   };
 
+  // 30-Minute Trial Timer State
+  const [trialSecondsLeft, setTrialSecondsLeft] = useState<number | undefined>(() => {
+    if (currentSubscriber?.status === 'DEGUSTACAO') {
+      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
+      return Math.max(0, Math.floor((exp - Date.now()) / 1000));
+    }
+    return undefined;
+  });
+
+  useEffect(() => {
+    if (currentSubscriber?.status !== 'DEGUSTACAO') {
+      setTrialSecondsLeft(undefined);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
+      const left = Math.max(0, Math.floor((exp - Date.now()) / 1000));
+      setTrialSecondsLeft(left);
+
+      if (left <= 0) {
+        setCurrentSubscriber(prev => ({ ...prev, status: 'EXPIRADO' }));
+        setPaywallActionName('Sua degustação grátis de 30 minutos expirou! Escolha um dos nossos planos para continuar disparando ofertas com o robô.');
+        setIsSubscriptionPaywallOpen(true);
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [currentSubscriber?.status, currentSubscriber?.expiresAt]);
+
   const ensureActiveSubscription = (actionName = 'colocar o robô para funcionar'): boolean => {
     if (userRole === 'ADMIN') return true;
     if (currentSubscriber && currentSubscriber.status === 'ATIVO') return true;
+    if (currentSubscriber && currentSubscriber.status === 'DEGUSTACAO' && (trialSecondsLeft === undefined || trialSecondsLeft > 0)) return true;
 
     setPaywallActionName(actionName);
     setIsSubscriptionPaywallOpen(true);
@@ -472,6 +504,8 @@ export default function App() {
         onOpenPriceAlerts={() => setIsPriceAlertsOpen(true)}
         isDarkMode={isDarkMode}
         onToggleDarkMode={handleToggleDarkMode}
+        trialSecondsLeft={trialSecondsLeft}
+        onOpenPaywall={() => setIsSubscriptionPaywallOpen(true)}
       />
 
       {/* Global Client Mode Tour Banner / Subscription Status */}

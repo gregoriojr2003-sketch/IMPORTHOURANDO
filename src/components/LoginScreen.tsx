@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check } from 'lucide-react';
+import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Zap } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { Subscriber } from '../types';
 
@@ -35,6 +35,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Handle 30-minute guest trial start
+  const handleStartGuest30MinTrial = () => {
+    setIsLoading(true);
+    const guestSub: Subscriber = {
+      id: `trial-${Date.now()}`,
+      name: 'Visitante Degustação',
+      email: `degustacao_${Date.now().toString().slice(-6)}@importhourando.com.br`,
+      phone: '+55 (11) 99999-0000',
+      plan: 'MENSAL',
+      status: 'DEGUSTACAO',
+      startedAt: new Date().toISOString().split('T')[0],
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      totalPaid: 0,
+      discountApplied: 0,
+      isLifetimeExemptFromMonitoring: false,
+      notes: 'Degustação grátis de 30 minutos iniciada'
+    };
+
+    onLoginSuccess({
+      name: guestSub.name,
+      email: guestSub.email,
+      role: 'SUBSCRIBER',
+      subscriber: guestSub
+    });
+    setIsLoading(false);
+  };
 
   // Switch modes safely clearing errors
   const handleSwitchMode = (newMode: AuthMode) => {
@@ -359,6 +386,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             {/* MODE 1: LOGIN FORM */}
             {mode === 'LOGIN' && (
               <div className="space-y-4">
+                {/* 30-Min Free Trial Entry Banner */}
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-400/20 to-amber-500/10 border-2 border-amber-400/80 shadow-md">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-900 px-2 py-0.5 rounded-full shadow-xs">
+                      <Sparkles className="w-3 h-3" /> Degustação Sem Limite
+                    </span>
+                    <span className="text-[10px] text-amber-800 font-extrabold">30 Minutos Grátis</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleStartGuest30MinTrial}
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-98 cursor-pointer group"
+                  >
+                    <Zap className="w-4 h-4 fill-current text-slate-900 group-hover:scale-110 transition-transform" />
+                    <span>⚡ ENTRAR AGORA: TESTAR 30 MINUTOS GRÁTIS</span>
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                  <p className="text-[10px] text-slate-600 font-medium text-center mt-1.5">
+                    Acesso imediato com todas as funções liberadas • Sem cadastro prévio
+                  </p>
+                </div>
+
                 {/* Social Login Options */}
                 <div className="space-y-2">
                   <button
@@ -586,40 +636,40 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     <button
                       type="button"
                       onClick={() => setRegPlan('MENSAL')}
-                      className={`p-2 rounded-xl border text-center transition-all ${
+                      className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
                         regPlan === 'MENSAL'
-                          ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black'
+                          ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black shadow-xs'
                           : 'border-slate-200 text-slate-600 hover:border-slate-300'
                       }`}
                     >
                       <strong className="block text-xs">Mensal</strong>
-                      <span className="text-[10px] text-slate-500">R$ 29,90/mês</span>
+                      <span className="text-[10px] text-slate-600 font-bold">R$ 49,90/mês</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setRegPlan('SEMESTRAL')}
-                      className={`p-2 rounded-xl border text-center transition-all ${
+                      className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
                         regPlan === 'SEMESTRAL'
-                          ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black'
+                          ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black shadow-xs'
                           : 'border-slate-200 text-slate-600 hover:border-slate-300'
                       }`}
                     >
                       <strong className="block text-xs">Semestral</strong>
-                      <span className="text-[10px] text-emerald-600 font-bold">15% OFF</span>
+                      <span className="text-[10px] text-emerald-600 font-extrabold">R$ 249,00</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setRegPlan('ANUAL')}
-                      className={`p-2 rounded-xl border text-center transition-all ${
+                      className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
                         regPlan === 'ANUAL'
-                          ? 'border-amber-500 bg-amber-50 text-amber-900 font-black'
+                          ? 'border-amber-500 bg-amber-50 text-amber-900 font-black shadow-xs'
                           : 'border-slate-200 text-slate-600 hover:border-slate-300'
                       }`}
                     >
-                      <strong className="block text-xs">Anual</strong>
-                      <span className="text-[10px] text-amber-700 font-bold">30% OFF</span>
+                      <strong className="block text-xs">01 Ano</strong>
+                      <span className="text-[10px] text-amber-700 font-extrabold">R$ 449,00</span>
                     </button>
                   </div>
                 </div>
