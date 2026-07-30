@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Send, MousePointerClick, DollarSign, Users, Zap, ExternalLink, ArrowUpRight, Plus, Sparkles, CheckCircle2, Clock, ShieldCheck, Pause, Play, Link, AlertTriangle, HelpCircle, TrendingUp, BarChart3, PieChart, ShoppingBag, FileSpreadsheet, Trash2, Search, X, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { DispatchedOffer, WhatsAppChannel, MercadoLivreProduct, AutoSchedulerConfig, AffiliateConfig } from '../types';
 import { exportDispatchesToCSV } from '../utils/csvExporter';
 
@@ -88,6 +89,72 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   });
 
   const topPerformingMp = [...marketplaceStats].sort((a, b) => b.commission - a.commission)[0];
+
+  // Generate last 7 days data for Recharts line chart
+  const last7DaysData = useMemo(() => {
+    const daysMap = new Map<string, { date: string; fullDate: string; label: string; dispatches: number; clicks: number; commission: number }>();
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
+      const dayShort = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+      const dayFormatted = `${day}/${month}`;
+      const label = i === 0 ? `Hoje (${dayFormatted})` : `${dayShort.charAt(0).toUpperCase() + dayShort.slice(1)} ${dayFormatted}`;
+
+      daysMap.set(dateKey, {
+        date: dateKey,
+        fullDate: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        label,
+        dispatches: 0,
+        clicks: 0,
+        commission: 0,
+      });
+    }
+
+    dispatchedLogs.forEach((log) => {
+      let logDateKey = '';
+      if (log.sentAt) {
+        const str = log.sentAt;
+        if (str.includes('Hoje')) {
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const day = String(now.getDate()).padStart(2, '0');
+          logDateKey = `${year}-${month}-${day}`;
+        } else if (str.includes('Ontem')) {
+          const d = new Date(now);
+          d.setDate(d.getDate() - 1);
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          logDateKey = `${year}-${month}-${day}`;
+        } else {
+          const dmyMatch = str.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if (dmyMatch) {
+            logDateKey = `${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`;
+          } else {
+            const ymdMatch = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (ymdMatch) {
+              logDateKey = `${ymdMatch[1]}-${ymdMatch[2]}-${ymdMatch[3]}`;
+            }
+          }
+        }
+      }
+
+      if (logDateKey && daysMap.has(logDateKey)) {
+        const item = daysMap.get(logDateKey)!;
+        item.dispatches += 1;
+        item.clicks += log.clicksCount || 0;
+        item.commission += log.estimatedComission || 0;
+      }
+    });
+
+    return Array.from(daysMap.values());
+  }, [dispatchedLogs]);
 
   const handleQuickParse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -362,6 +429,114 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-xs text-slate-500">de {channels.length} cadastrados</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">Público total ~23k membros</p>
+        </div>
+      </div>
+
+      {/* Daily Offer Dispatches Line Chart (Recharts) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-xl bg-indigo-50 text-[#2D3277] border border-indigo-100">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="font-extrabold text-slate-900 text-base">Disparos Diários de Ofertas</h3>
+                <span className="bg-indigo-100 text-[#2D3277] text-[10px] font-black px-2 py-0.5 rounded-full border border-indigo-200 uppercase">
+                  Últimos 7 Dias
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Acompanhamento gráfico do volume diário de ofertas enviadas nos canais e grupos do WhatsApp.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 text-xs bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 shrink-0">
+            <div>
+              <span className="text-slate-400 block text-[10px] font-bold uppercase">Total 7D</span>
+              <span className="font-black text-[#2D3277]">
+                {last7DaysData.reduce((acc, curr) => acc + curr.dispatches, 0)} disparos
+              </span>
+            </div>
+            <div className="h-6 w-px bg-slate-200"></div>
+            <div>
+              <span className="text-slate-400 block text-[10px] font-bold uppercase">Média Diária</span>
+              <span className="font-extrabold text-emerald-700">
+                {(last7DaysData.reduce((acc, curr) => acc + curr.dispatches, 0) / 7).toFixed(1)} / dia
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Recharts Line / Area Chart Container */}
+        <div className="w-full h-64 pt-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={last7DaysData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="dispatchesGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3483FA" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#3483FA" stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis 
+                dataKey="label" 
+                stroke="#94a3b8" 
+                fontSize={11} 
+                tickLine={false} 
+                axisLine={{ stroke: '#e2e8f0' }}
+              />
+              <YAxis 
+                stroke="#94a3b8" 
+                fontSize={11} 
+                tickLine={false} 
+                axisLine={false}
+                allowDecimals={false}
+              />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload;
+                    return (
+                      <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl border border-slate-700 font-sans text-xs space-y-1.5">
+                        <p className="font-bold text-slate-200 border-b border-slate-800 pb-1 flex items-center justify-between gap-3">
+                          <span>{data.fullDate}</span>
+                          <span className="text-indigo-300 font-mono text-[11px]">{data.label}</span>
+                        </p>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-slate-400 flex items-center gap-1">
+                            <Send className="w-3 h-3 text-[#3483FA]" /> Disparos:
+                          </span>
+                          <span className="font-black text-[#FFE600] font-mono text-sm">{data.dispatches}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 text-[11px]">
+                          <span className="text-slate-400">Cliques Est:</span>
+                          <span className="font-bold text-emerald-400 font-mono">{data.clicks}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 text-[11px]">
+                          <span className="text-slate-400">Comissão Est:</span>
+                          <span className="font-bold text-amber-300 font-mono">R$ {data.commission.toFixed(2).replace('.', ',')}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Area 
+                type="monotone" 
+                dataKey="dispatches" 
+                stroke="#3483FA" 
+                strokeWidth={3} 
+                fillOpacity={1} 
+                fill="url(#dispatchesGradient)"
+                activeDot={{ r: 6, fill: '#FFE600', stroke: '#2D3277', strokeWidth: 2 }}
+                dot={{ r: 4, fill: '#3483FA', strokeWidth: 1, stroke: '#ffffff' }}
+                name="Disparos"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
 

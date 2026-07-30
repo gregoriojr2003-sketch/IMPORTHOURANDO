@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info } from 'lucide-react';
+import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info, Database, Download } from 'lucide-react';
 import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig } from '../types';
 
 interface SettingsModalProps {
@@ -8,6 +8,7 @@ interface SettingsModalProps {
   config: AffiliateConfig;
   onSaveConfig: (updated: Partial<AffiliateConfig>) => void;
   onRequirePlanActivation?: (actionName?: string) => boolean;
+  onOpenBackup?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -15,7 +16,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   config,
   onSaveConfig,
-  onRequirePlanActivation
+  onRequirePlanActivation,
+  onOpenBackup
 }) => {
   const [activeTab, setActiveTab] = useState<'MARKETPLACES' | 'WHATSAPP' | 'BRAND_VOICE'>('MARKETPLACES');
 
@@ -501,8 +503,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
+          {/* Local Backup Quick Action Box */}
+          {onOpenBackup && (
+            <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-lg bg-indigo-100 text-[#2D3277]">
+                  <Database className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="font-bold text-slate-800">Cópia de Segurança Local (Backup JSON)</h5>
+                  <p className="text-[11px] text-slate-500">Exporte ou restaure suas tags, canais e agendamentos.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenBackup();
+                }}
+                className="px-3 py-1.5 rounded-lg bg-[#2D3277] hover:bg-[#3D438F] text-white font-bold text-xs flex items-center space-x-1 transition-all shrink-0 shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5 text-[#FFE600]" />
+                <span>Backup / Restaurar</span>
+              </button>
+            </div>
+          )}
+
           {/* Save Action */}
-          <div className="pt-3">
+          <div className="pt-1">
             <button
               type="submit"
               className="w-full bg-[#2D3277] hover:bg-[#3D438F] text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-sm text-sm"

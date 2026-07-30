@@ -18,10 +18,13 @@ import { LoginModal } from './components/LoginModal';
 import { LoginScreen } from './components/LoginScreen';
 import { PriceAlertsModal } from './components/PriceAlertsModal';
 import { SubscriptionPaywallModal } from './components/SubscriptionPaywallModal';
+import { BackupManagerModal } from './components/BackupManagerModal';
+import { FloatingDiagnosticLog } from './components/FloatingDiagnosticLog';
 import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 import { MercadoLivreProduct, WhatsAppChannel, OfferPostTemplate, DispatchedOffer, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, PriceAlertRule } from './types';
 import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCHED_LOGS, INITIAL_SCHEDULER_CONFIG, INITIAL_AFFILIATE_CONFIG, INITIAL_SUBSCRIBERS, INITIAL_ADMIN_NOTIFICATIONS, INITIAL_PRICE_ALERTS } from './data/initialData';
+import { AppBackupData } from './utils/backupUtils';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'channels' | 'templates' | 'logs' | 'subscribers'>('dashboard');
@@ -89,6 +92,7 @@ export default function App() {
   // Modals state
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertRule[]>(INITIAL_PRICE_ALERTS);
   const [isPriceAlertsOpen, setIsPriceAlertsOpen] = useState(false);
+  const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isConverterOpen, setIsConverterOpen] = useState(false);
   const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
@@ -97,6 +101,79 @@ export default function App() {
   const [isPlanManagerOpen, setIsPlanManagerOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [selectedProductForDispatch, setSelectedProductForDispatch] = useState<MercadoLivreProduct | null>(null);
+
+  const handleRestoreBackup = (backup: AppBackupData, mode: 'REPLACE' | 'MERGE') => {
+    if (mode === 'REPLACE') {
+      if (backup.affiliateConfig) setAffiliateConfig(backup.affiliateConfig);
+      if (backup.channels) setChannels(backup.channels);
+      if (backup.templates) setTemplates(backup.templates);
+      if (backup.schedulerConfig) setSchedulerConfig(backup.schedulerConfig);
+      if (backup.mlMonitorConfig) setMlMonitorConfig(backup.mlMonitorConfig);
+      if (backup.products) setProducts(backup.products);
+      if (backup.dispatchedLogs) setDispatchedLogs(backup.dispatchedLogs);
+      if (backup.priceAlerts) setPriceAlerts(backup.priceAlerts);
+      if (backup.subscribers) setSubscribers(backup.subscribers);
+    } else {
+      // MERGE Mode
+      if (backup.affiliateConfig) {
+        setAffiliateConfig(prev => ({
+          ...prev,
+          ...backup.affiliateConfig,
+          marketplaceAccounts: {
+            ...prev.marketplaceAccounts,
+            ...backup.affiliateConfig?.marketplaceAccounts
+          },
+          brandVoice: {
+            ...prev.brandVoice,
+            ...backup.affiliateConfig?.brandVoice
+          }
+        }));
+      }
+
+      if (backup.channels) {
+        setChannels(prev => {
+          const existingIds = new Set(prev.map(c => c.id));
+          const newChannels = backup.channels!.filter(c => !existingIds.has(c.id));
+          return [...prev, ...newChannels];
+        });
+      }
+
+      if (backup.templates) {
+        setTemplates(prev => {
+          const existingIds = new Set(prev.map(t => t.id));
+          const newTemplates = backup.templates!.filter(t => !existingIds.has(t.id));
+          return [...prev, ...newTemplates];
+        });
+      }
+
+      if (backup.schedulerConfig) setSchedulerConfig(backup.schedulerConfig);
+      if (backup.mlMonitorConfig) setMlMonitorConfig(backup.mlMonitorConfig);
+
+      if (backup.products) {
+        setProducts(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const newProducts = backup.products!.filter(p => !existingIds.has(p.id));
+          return [...prev, ...newProducts];
+        });
+      }
+
+      if (backup.dispatchedLogs) {
+        setDispatchedLogs(prev => {
+          const existingIds = new Set(prev.map(d => d.id));
+          const newLogs = backup.dispatchedLogs!.filter(d => !existingIds.has(d.id));
+          return [...newLogs, ...prev];
+        });
+      }
+
+      if (backup.priceAlerts) {
+        setPriceAlerts(prev => {
+          const existingIds = new Set(prev.map(a => a.id));
+          const newAlerts = backup.priceAlerts!.filter(a => !existingIds.has(a.id));
+          return [...prev, ...newAlerts];
+        });
+      }
+    }
+  };
 
   // Tour Mode Paywall Gate State
   const [isSubscriptionPaywallOpen, setIsSubscriptionPaywallOpen] = useState(false);
@@ -606,6 +683,7 @@ export default function App() {
         schedulerConfig={schedulerConfig}
         onOpenConverter={() => handleOpenConverterWithProduct()}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenBackup={() => setIsBackupOpen(true)}
         onOpenScheduler={() => setIsSchedulerOpen(true)}
         onOpenMLMonitor={() => setIsMLMonitorOpen(true)}
         onManualTriggerScheduler={handleManualTriggerScheduler}
@@ -818,6 +896,22 @@ export default function App() {
         config={affiliateConfig}
         onSaveConfig={(updated) => handleSaveConfig(updated, undefined)}
         onRequirePlanActivation={(actionName) => ensureActiveSubscription(actionName)}
+        onOpenBackup={() => setIsBackupOpen(true)}
+      />
+
+      <BackupManagerModal
+        isOpen={isBackupOpen}
+        onClose={() => setIsBackupOpen(false)}
+        affiliateConfig={affiliateConfig}
+        channels={channels}
+        templates={templates}
+        dispatchedLogs={dispatchedLogs}
+        schedulerConfig={schedulerConfig}
+        mlMonitorConfig={mlMonitorConfig}
+        products={products}
+        priceAlerts={priceAlerts}
+        subscribers={subscribers}
+        onRestoreBackup={handleRestoreBackup}
       />
 
       {isPlanManagerOpen && (
@@ -870,6 +964,9 @@ export default function App() {
         onGoToPlans={handleGoToPlansFromPaywall}
         actionName={paywallActionName}
       />
+
+      {/* Floating Network Diagnostic Log Panel */}
+      <FloatingDiagnosticLog />
     </div>
   );
 }

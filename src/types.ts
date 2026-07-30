@@ -203,4 +203,14 @@ export interface PriceAlertRule {
   matchesCount?: number;
 }
 
+export interface MLMonitorConfig {
+  enabled: boolean;
+  affiliateTag: string;
+  targetChannelId: string;
+  minDiscount: number;
+  checkIntervalSeconds: number;
+  lastCheckedAt?: string;
+  totalNewOffersIdentified: number;
+}
+
 

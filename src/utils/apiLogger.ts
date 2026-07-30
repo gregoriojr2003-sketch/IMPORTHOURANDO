@@ -59,7 +59,7 @@ export function setupFetchInterceptor() {
     // Only log relative or absolute /api/ calls
     const isApiCall = url.includes('/api/');
     if (!isApiCall) {
-      return originalFetch.apply(this, args);
+      return originalFetch.apply(window, args);
     }
 
     const id = `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -76,7 +76,7 @@ export function setupFetchInterceptor() {
     }
 
     try {
-      const response = await originalFetch.apply(this, args);
+      const response = await originalFetch.apply(window, args);
       const durationMs = Math.round(performance.now() - startTime);
 
       let responseSnippet: string | null = null;
