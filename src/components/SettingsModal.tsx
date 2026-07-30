@@ -436,6 +436,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
+              {/* Idioma & Sotaque Regional Brasileiro */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-purple-50/60 border border-purple-200/80 rounded-2xl">
+                <div>
+                  <label className="block font-bold text-slate-800 text-xs mb-1 flex items-center space-x-1">
+                    <Globe className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Idioma da Copy da IA</span>
+                  </label>
+                  <select
+                    value={brandVoice.language || 'PT_BR'}
+                    onChange={(e) => setBrandVoice({ ...brandVoice, language: e.target.value as any })}
+                    className="w-full bg-white border border-purple-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs focus:outline-none focus:border-purple-600"
+                  >
+                    <option value="PT_BR">🇧🇷 Português (Brasil - Padrão)</option>
+                    <option value="EN">🇺🇸 English (United States / Global)</option>
+                    <option value="ES">🇪🇸 Español (América Latina)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-800 text-xs mb-1 flex items-center space-x-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Sotaque / Estilo Regional Brasileiro</span>
+                  </label>
+                  <select
+                    value={brandVoice.regionalStyle || 'NENHUM'}
+                    onChange={(e) => setBrandVoice({ ...brandVoice, regionalStyle: e.target.value as any })}
+                    className="w-full bg-white border border-purple-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs focus:outline-none focus:border-purple-600"
+                  >
+                    <option value="NENHUM">🌐 Padrão Nacional (Sem Sotaque Específico)</option>
+                    <option value="NORDESTINO">🌵 Estilo Nordestino ("Oxente", "Pense num desconto arretado!", "Eita guri!")</option>
+                    <option value="PAULISTANO">🏙️ Estilo Paulistano ("Mano do céu, que achado meeeu!", "No precinho!")</option>
+                    <option value="MINEIRO">☕ Estilo Mineiro ("Nuuua, ô trem bão demais da conta!", "Uai, olha esse preço!")</option>
+                    <option value="CARIOCA">🏖️ Estilo Carioca ("Coisa linda de prima!", "Tá de graça, parceiro!")</option>
+                    <option value="GAUCHO">🧉 Estilo Gaúcho / Sulino ("Bah tchê, que barbaridade!", "Tri legal!")</option>
+                    <option value="FORMAL_CORPORATIVO">💼 Executivo / Corporativo de Alta Classe</option>
+                    <option value="DESCONTRAIDO_JOVEM">🎧 Geração Z / TikToker (Com gírias atuais)</option>
+                    <option value="PROMOCIONAL_AGRESSIVO">📢 Locutor de Varejo / Black Friday Agressivo</option>
+                    <option value="ACHADINHOS_MEME">😂 Humor de Meme & Tio do WhatsApp</option>
+                  </select>
+                </div>
+              </div>
+
               {/* Nome da Marca & Saudação de Abertura */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>

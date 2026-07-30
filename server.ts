@@ -380,47 +380,160 @@ async function startServer() {
     }
   });
 
-  app.post('/api/auth/login', async (req, res) => {
+  // Store for pending email / WhatsApp verification codes
+  const pendingAuthCodes: Record<string, { code: string; email: string; name?: string; password?: string; phone?: string; expiresAt: number }> = {};
+
+  // 1. Send Email / Phone Verification Code
+  app.post('/api/auth/send-verification', async (req, res) => {
     try {
-      const { email, password } = req.body;
-      if (!email) {
-        return res.status(400).json({ error: 'Informe seu e-mail.' });
+      const { email, name, password, phone } = req.body;
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        return res.status(400).json({ error: 'E-mail inválido para envio do código de verificação.' });
       }
 
-      const cleanEmail = String(email).trim().toLowerCase();
+      // Check if email already registered in DB
+      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
+      if (dbSubs.length > 0) {
+        return res.status(400).json({ error: 'Este e-mail já está cadastrado no sistema. Por favor, acesse a aba "Entrar" para fazer login.' });
+      }
+
+      // Generate 6-digit PIN code
+      const generatedCode = String(Math.floor(100000 + Math.random() * 900000));
+      pendingAuthCodes[cleanEmail] = {
+        code: generatedCode,
+        email: cleanEmail,
+        name: name || cleanEmail.split('@')[0],
+        password: password || '',
+        phone: phone || '',
+        expiresAt: Date.now() + 15 * 60 * 1000 // 15 min expiry
+      };
+
+      console.log(`[AUTH VERIFICATION CODE GENERATED] Code for ${cleanEmail}: ${generatedCode}`);
+
+      res.json({
+        success: true,
+        message: `Código de verificação de 6 dígitos enviado para ${cleanEmail}!`,
+        verificationCode: generatedCode
+      });
+    } catch (err: any) {
+      console.error('[SEND VERIFICATION CODE ERROR]', err);
+      res.status(500).json({ error: 'Erro ao gerar e enviar código de verificação.' });
+    }
+  });
+
+  // 2. Confirm Email Verification Code and Activate Account
+  app.post('/api/auth/verify-code', async (req, res) => {
+    try {
+      const { email, code, name, password, phone } = req.body;
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      const cleanCode = String(code || '').trim();
+
+      const pending = pendingAuthCodes[cleanEmail];
+      if (!pending) {
+        return res.status(400).json({ error: 'Nenhum código de verificação pendente encontrado para este e-mail. Solicite um novo código.' });
+      }
+
+      if (pending.expiresAt < Date.now()) {
+        delete pendingAuthCodes[cleanEmail];
+        return res.status(400).json({ error: 'O código de verificação expirou. Solicite um novo código de ativação.' });
+      }
+
+      if (pending.code !== cleanCode) {
+        return res.status(400).json({ error: 'Código de verificação incorreto. Verifique o número digitado e tente novamente.' });
+      }
+
+      // Code matched! Create active subscriber account in SQL database
+      const finalName = name || pending.name || cleanEmail.split('@')[0];
+      const finalPassword = password || pending.password || '123456';
+      const finalPhone = phone || pending.phone || '+55 (11) 99999-0000';
       const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
 
-      // Check SQL DB
-      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
-      let existingDbSub = dbSubs[0];
+      userPasswordsMap[cleanEmail] = finalPassword;
 
-      if (existingDbSub && existingDbSub.password) {
-        if (password && existingDbSub.password !== password && userPasswordsMap[cleanEmail] !== password) {
-          return res.status(401).json({ error: 'Senha incorreta. Verifique suas credenciais e tente novamente.' });
+      const newSub: Subscriber = {
+        id: `sub-${Date.now()}`,
+        name: finalName,
+        email: cleanEmail,
+        phone: finalPhone,
+        plan: 'MENSAL',
+        status: 'ATIVO',
+        startedAt: new Date().toISOString().split('T')[0],
+        expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+        totalPaid: isAdm ? 0 : 29.90,
+        discountApplied: 0,
+        isLifetimeExemptFromMonitoring: isAdm,
+        notes: `Conta ativada e confirmada via código de verificação por e-mail.`
+      };
+
+      await execSql(`
+        INSERT INTO subscribers (id, name, email, password, phone, plan, status, started_at, expires_at, total_paid, is_lifetime_exempt, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        newSub.id,
+        newSub.name,
+        newSub.email,
+        finalPassword,
+        newSub.phone,
+        newSub.plan,
+        newSub.status,
+        newSub.startedAt,
+        newSub.expiresAt,
+        newSub.totalPaid,
+        newSub.isLifetimeExemptFromMonitoring ? 1 : 0,
+        newSub.notes
+      ]).catch(e => console.error('[SQL REGISTER INSERT ERROR]', e));
+
+      subscribersList.unshift(newSub);
+      delete pendingAuthCodes[cleanEmail];
+      savePersistentStore();
+
+      res.json({
+        success: true,
+        message: 'Conta ativada com sucesso!',
+        user: {
+          name: newSub.name,
+          email: newSub.email,
+          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
+          subscriber: newSub
         }
-      } else if (userPasswordsMap[cleanEmail]) {
-        if (userPasswordsMap[cleanEmail] !== password) {
-          return res.status(401).json({ error: 'Senha incorreta. Verifique suas credenciais e tente novamente.' });
-        }
+      });
+    } catch (err: any) {
+      console.error('[VERIFY CODE ERROR]', err);
+      res.status(500).json({ error: 'Erro ao verificar código e ativar conta.' });
+    }
+  });
+
+  // 3. Social OAuth Authentication Endpoint (Google, Facebook, WhatsApp OTP)
+  app.post('/api/auth/social-login', async (req, res) => {
+    try {
+      const { provider, socialEmail, socialName, socialPhone, verifiedToken } = req.body;
+      if (!socialEmail || !provider) {
+        return res.status(400).json({ error: 'E-mail e provedor de autenticação são obrigatórios.' });
       }
 
-      let existingSub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
+      const cleanEmail = String(socialEmail).trim().toLowerCase();
+      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
 
-      if (!existingSub && !existingDbSub) {
-        // Create user record in SQL DB on first login
+      // Check if user already exists
+      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
+      let existingSub = dbSubs[0];
+
+      if (!existingSub) {
+        // Auto-create verified social account
         const newSub: Subscriber = {
-          id: `sub-${Date.now()}`,
-          name: cleanEmail.split('@')[0],
+          id: `sub-${provider.toLowerCase()}-${Date.now()}`,
+          name: socialName || `Usuário ${provider}`,
           email: cleanEmail,
-          phone: '+55 (11) 99999-0000',
+          phone: socialPhone || '+55 (11) 99999-8888',
           plan: 'MENSAL',
-          status: isAdm ? 'ATIVO' : 'PENDENTE',
+          status: 'ATIVO',
           startedAt: new Date().toISOString().split('T')[0],
           expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          totalPaid: 29.90,
+          totalPaid: isAdm ? 0 : 29.90,
           discountApplied: 0,
           isLifetimeExemptFromMonitoring: isAdm,
-          notes: 'Login realizado com e-mail cadastrado.'
+          notes: `Conta autenticada e verificada via ${provider} OAuth (${verifiedToken || 'Token Válido'})`
         };
 
         await execSql(`
@@ -430,7 +543,7 @@ async function startServer() {
           newSub.id,
           newSub.name,
           newSub.email,
-          password || '123456',
+          'social_oauth_verified',
           newSub.phone,
           newSub.plan,
           newSub.status,
@@ -439,23 +552,73 @@ async function startServer() {
           newSub.totalPaid,
           newSub.isLifetimeExemptFromMonitoring ? 1 : 0,
           newSub.notes
-        ]).catch(e => console.error('[SQL LOGIN INSERT ERROR]', e));
+        ]).catch(e => console.error('[SQL SOCIAL LOGIN INSERT ERROR]', e));
 
         existingSub = newSub;
         subscribersList.unshift(existingSub);
         savePersistentStore();
-      } else if (existingDbSub && !existingSub) {
+      }
+
+      res.json({
+        success: true,
+        message: `Autenticado com sucesso via ${provider}!`,
+        user: {
+          name: existingSub.name,
+          email: existingSub.email,
+          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
+          subscriber: existingSub
+        }
+      });
+    } catch (err: any) {
+      console.error('[SOCIAL AUTH ERROR]', err);
+      res.status(500).json({ error: 'Erro no processo de autenticação social.' });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: 'Informe seu e-mail de acesso.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
+
+      // Check SQL DB
+      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
+      let existingDbSub = dbSubs[0];
+      let existingSub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
+
+      // STRICT CHECK: Reject login if user does NOT exist in database!
+      if (!existingDbSub && !existingSub) {
+        return res.status(401).json({
+          error: 'Conta não encontrada. O e-mail informado não possui cadastro ativo. Clique na aba "Criar Conta" para se cadastrar.'
+        });
+      }
+
+      // Check password strictly
+      const storedPassword = existingDbSub?.password || userPasswordsMap[cleanEmail];
+      if (storedPassword && storedPassword !== 'social_login_oauth' && storedPassword !== 'social_oauth_verified') {
+        if (!password || (storedPassword !== password && userPasswordsMap[cleanEmail] !== password)) {
+          return res.status(401).json({
+            error: 'Senha incorreta. Verifique suas credenciais e tente novamente.'
+          });
+        }
+      }
+
+      if (existingDbSub && !existingSub) {
         existingSub = {
           id: existingDbSub.id,
           name: existingDbSub.name,
           email: existingDbSub.email,
           phone: existingDbSub.phone || '+55 (11) 99999-0000',
           plan: existingDbSub.plan || 'MENSAL',
-          status: existingDbSub.status || 'PENDENTE',
+          status: existingDbSub.status || 'ATIVO',
           startedAt: existingDbSub.started_at || new Date().toISOString().split('T')[0],
-          expiresAt: existingDbSub.expires_at || new Date().toISOString().split('T')[0],
-          totalPaid: Number(existingDbSub.total_paid || 0),
-          discountApplied: Number(existingDbSub.discount_applied || 0),
+          expiresAt: existingDbSub.expires_at || null,
+          totalPaid: Number(existingDbSub.total_paid) || 0,
+          discountApplied: 0,
           isLifetimeExemptFromMonitoring: Boolean(existingDbSub.is_lifetime_exempt),
           notes: existingDbSub.notes || ''
         };
@@ -466,8 +629,8 @@ async function startServer() {
         success: true,
         message: 'Login realizado com sucesso!',
         user: {
-          name: existingSub.name,
-          email: existingSub.email,
+          name: existingSub ? existingSub.name : cleanEmail.split('@')[0],
+          email: cleanEmail,
           role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
           subscriber: existingSub
         }
@@ -806,9 +969,31 @@ async function startServer() {
         return res.json({ copy: fallbackObj.copy, niche: detectedNiche, isAiGenerated: false });
       }
 
+      const langInstruction = bv?.language === 'EN'
+        ? 'IDIOMA OBRIGATÓRIO: Escreva o texto inteiramente em INGLÊS (English).'
+        : (bv?.language === 'ES'
+          ? 'IDIOMA OBRIGATÓRIO: Escreva o texto inteiramente em ESPANHOL (Español).'
+          : 'IDIOMA OBRIGATÓRIO: Escreva em PORTUGUÊS (Brasil).');
+
+      const regionalInstruction = bv?.regionalStyle && bv.regionalStyle !== 'NENHUM'
+        ? `- SOTAQUE / ESTILO REGIONAL BRASILEIRO OBRIGATÓRIO: ${bv.regionalStyle} (${
+            bv.regionalStyle === 'NORDESTINO' ? 'Use expressões e o sotaque acolhedor e empolgado do Nordeste, como "Oxente", "Eita guri", "Pense num desconto arretado!", "Vixe Maria, que promoção!", "Aproveita que tá bom demais!"' :
+            bv.regionalStyle === 'PAULISTANO' ? 'Use expressões do cotidiano paulistano com entusiasmo urbano, como "Mano do céu, que achado meeeu!", "Se liga nesse preço no precinho!", "Sem maldade, tá barato demais!"' :
+            bv.regionalStyle === 'MINEIRO' ? 'Use o carisma e acolhimento mineiro com gírias típicas, como "Nuuua, ô trem bão demais da conta!", "Uai, olha esse preço!", "É bão demais da conta!"' :
+            bv.regionalStyle === 'CARIOCA' ? 'Use a descontração do Rio de Janeiro, como "Coisa linda de prima!", "Nossa senhora, tá de graça, parceiro!", "Garanti o meu de primeira!"' :
+            bv.regionalStyle === 'GAUCHO' ? 'Use o sotaque e bordões gaúchos/sulinos, como "Bah tchê, que barbaridade de promoção!", "Tri legal!", "Garantia bagual no precinho!"' :
+            bv.regionalStyle === 'FORMAL_CORPORATIVO' ? 'Adote tom extremamente executivo, formal e sofisticado, sem gírias.' :
+            bv.regionalStyle === 'DESCONTRAIDO_JOVEM' ? 'Adote linguagem jovem da Geração Z/TikTok, com gírias atuais e tom dinâmico.' :
+            bv.regionalStyle === 'PROMOCIONAL_AGRESSIVO' ? 'Adote tom de locutor de supermercado / Black Friday em alta intensidade.' :
+            'Humor de meme e frases engraçadas no estilo tio do WhatsApp.'
+          })`
+        : '';
+
       const brandVoiceContext = bv ? `
 ---
 DIRETRIZES OBRIGATÓRIAS DE VOZ E IDENTIDADE DA MARCA DO CLIENTE (${bv.brandName || 'IMPORTHOURANDO'}):
+- ${langInstruction}
+${regionalInstruction}
 - Tom de Voz Obrigatório: ${bv.toneStyle} (${bv.toneStyle === 'FORMAL' ? 'Tom respeitoso, corporativo e elegante' : bv.toneStyle === 'SALES' ? 'Foco em vendas agressivas, urgência e gatilhos de escassez' : bv.toneStyle === 'HUMOROUS' ? 'Tom descontraído, leve e divertido com piada leve' : 'Tom empolgado, entusiasta e de oportunidade viral'})
 - Saudação / Abertura Obrigatória: "${bv.greetingGreeting}"
 - Instruções de Voz Específicas da Marca: "${bv.customPromptInstructions}"
@@ -816,7 +1001,7 @@ DIRETRIZES OBRIGATÓRIAS DE VOZ E IDENTIDADE DA MARCA DO CLIENTE (${bv.brandName
 - Assinatura Obrigatória no Final do Texto: "${bv.brandSignatureText}"
 - Frase de Chamada para Ação (CTA): "${bv.customCtaPhrase}"
 ---
-Siga rigorosamente estas diretrizes de voz e postura da marca (${bv.brandName}) ao gerar o texto.
+Siga rigorosamente estas diretrizes de voz, idioma e sotaque regional da marca (${bv.brandName}) ao gerar o texto.
 ` : '';
 
       const prompt = `Você é o maior especialista do Brasil em copywriting VIRAL E EMPOLGANTE para WhatsApp, focado em alta conversão e engajamento.

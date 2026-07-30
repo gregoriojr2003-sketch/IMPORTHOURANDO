@@ -100,6 +100,8 @@ export interface MarketplaceAffiliateAccounts {
 
 export interface BrandVoiceConfig {
   toneStyle: 'FORMAL' | 'HYPED' | 'SALES' | 'HUMOROUS' | 'URGENT' | 'CUSTOM';
+  language?: 'PT_BR' | 'EN' | 'ES';
+  regionalStyle?: 'NENHUM' | 'NORDESTINO' | 'PAULISTANO' | 'MINEIRO' | 'CARIOCA' | 'GAUCHO' | 'FORMAL_CORPORATIVO' | 'DESCONTRAIDO_JOVEM' | 'PROMOCIONAL_AGRESSIVO' | 'ACHADINHOS_MEME';
   brandName: string;
   greetingGreeting: string;
   customPromptInstructions: string;

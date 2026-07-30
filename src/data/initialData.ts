@@ -279,6 +279,8 @@ export const INITIAL_AFFILIATE_CONFIG: AffiliateConfig = {
   },
   brandVoice: {
     toneStyle: 'HYPED',
+    language: 'PT_BR',
+    regionalStyle: 'NORDESTINO',
     brandName: 'IMPORTHOURANDO',
     greetingGreeting: '🔥 Fala galera do IMPORTHOURANDO!',
     customPromptInstructions: 'Destaque a economia no valor do produto, crie senso de urgência motivando a compra imediata e mencione que a oferta é de procedência verificada.',
