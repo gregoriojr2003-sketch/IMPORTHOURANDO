@@ -227,7 +227,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: loginPassword })
+        body: JSON.stringify({ email: cleanEmail, password: loginPassword, deviceFingerprint: getDeviceFingerprint() })
       });
 
       const data = await res.json();
@@ -281,7 +281,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           name: cleanName,
           email: cleanEmail,
           password: regPassword,
-          phone: cleanPhone
+          phone: cleanPhone,
+          deviceFingerprint: getDeviceFingerprint()
         })
       });
 
@@ -328,7 +329,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           code: verificationCodeInput.trim(),
           name: verificationPending.name,
           password: verificationPending.password,
-          phone: verificationPending.phone
+          phone: verificationPending.phone,
+          deviceFingerprint: getDeviceFingerprint()
         })
       });
 
@@ -398,7 +400,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           provider: socialModalProvider,
           socialEmail: socialEmailInput.trim().toLowerCase(),
           socialName: socialNameInput.trim() || `Usuário ${socialModalProvider}`,
-          verifiedToken: `OAUTH_VERIFIED_${Date.now()}`
+          verifiedToken: `OAUTH_VERIFIED_${Date.now()}`,
+          deviceFingerprint: getDeviceFingerprint()
         })
       });
 

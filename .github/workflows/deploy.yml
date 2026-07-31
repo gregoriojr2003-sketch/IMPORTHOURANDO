@@ -1,0 +1,67 @@
+# ==============================================================================
+# WORKFLOW DE CI/CD - BUILD E DEPLOY AUTOMÁTICO NA HOSTINGER (FTP)
+# ==============================================================================
+# Este arquivo automatiza o processo de build do projeto e sincroniza a pasta
+# de saída 'dist' diretamente para o diretório 'public_html' na Hostinger.
+#
+# ------------------------------------------------------------------------------
+# COMO CONFIGURAR AS SECRETS NO GITHUB REPOSITORY:
+# ------------------------------------------------------------------------------
+# 1. No seu repositório no GitHub, acesse: Settings -> Secrets and variables -> Actions
+# 2. Clique em "New repository secret" e adicione as 3 credenciais abaixo:
+#
+#    - FTP_SERVER : O endereço IP do servidor FTP ou domínio (Ex: ftp.seudominio.com ou 185.x.x.x)
+#                   Obtido no painel hPanel da Hostinger -> Hospedagem -> Contas FTP
+#    - FTP_USERNAME: O nome de usuário do FTP da Hostinger (Ex: u123456789)
+#    - FTP_PASSWORD: A senha correspondente à conta FTP criada na Hostinger
+#
+# ------------------------------------------------------------------------------
+
+name: CI/CD Build e Deploy Hostinger (FTP)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build & FTP Deploy to public_html
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: 🟢 Configurar ambiente Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Instalar Dependências
+        run: npm ci || npm install
+
+      - name: 🏗️ Executar Build de Produção
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🚀 Deploy dos Arquivos Gerados (dist) para Hostinger (public_html)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          local-dir: ./dist/
+          server-dir: ./public_html/
+          state-name: .ftp-deploy-sync-state.json
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            .env*

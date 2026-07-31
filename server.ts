@@ -48,8 +48,18 @@ let processedMlOfferIds: Set<string> = new Set();
 // Persistent Disk Store File Setup
 const STORE_FILE = path.join(process.cwd(), 'data_store.json');
 
-// Track used trial IPs and Device Fingerprints to enforce strictly 1-time free trial per IP/MAC/Device
+// Track used trial IPs, Device Fingerprints, and linked Accounts to enforce strictly 1-time free trial per device
+export interface TrialRecord {
+  id: string;
+  ip: string;
+  deviceFp: string;
+  email: string;
+  subscriberId?: string;
+  claimedAt: string;
+}
+
 let usedTrialIps: string[] = [];
+let usedTrialRecords: TrialRecord[] = [];
 
 // Real database user passwords store (email -> password hash)
 let userPasswordsMap: Record<string, string> = {
@@ -70,6 +80,7 @@ function loadPersistentStore() {
       if (data.templatesList && Array.isArray(data.templatesList) && data.templatesList.length > 0) templatesList = data.templatesList;
       if (data.adminPaymentConfig) adminPaymentConfig = data.adminPaymentConfig;
       if (data.usedTrialIps && Array.isArray(data.usedTrialIps)) usedTrialIps = data.usedTrialIps;
+      if (data.usedTrialRecords && Array.isArray(data.usedTrialRecords)) usedTrialRecords = data.usedTrialRecords;
       if (data.userPasswordsMap && typeof data.userPasswordsMap === 'object') userPasswordsMap = data.userPasswordsMap;
       console.log('[PERSISTENCE] Data store loaded successfully from data_store.json');
     }
@@ -89,12 +100,130 @@ function savePersistentStore() {
       templatesList,
       adminPaymentConfig,
       usedTrialIps,
+      usedTrialRecords,
       userPasswordsMap
     };
     fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf-8');
 
   } catch (err) {
     console.error('[PERSISTENCE] Error saving data store:', err);
+  }
+}
+
+/**
+ * Cross-references IP address, Device Fingerprint, and Account Email
+ * to prevent stealthy / repeated degustação usage.
+ */
+async function isTrialExhaustedCrossCheck(clientIp: string, deviceFp?: string, email?: string): Promise<{ isExhausted: boolean; reason: string; matchedBy?: string }> {
+  const normEmail = email ? email.trim().toLowerCase() : '';
+  const normIp = clientIp ? clientIp.trim() : '';
+  const normFp = deviceFp ? deviceFp.trim() : '';
+
+  // 1. Check in-memory IP list
+  if (normIp && usedTrialIps.includes(normIp)) {
+    return { isExhausted: true, reason: `O seu endereço IP (${normIp}) já realizou a degustação gratuita de 30 minutos!`, matchedBy: 'IP' };
+  }
+
+  // 2. Check in-memory Device Fingerprint list
+  if (normFp && usedTrialIps.includes(normFp)) {
+    return { isExhausted: true, reason: 'Este dispositivo já realizou a degustação gratuita de 30 minutos! Assine um plano para continuar usufruindo.', matchedBy: 'DISPOSITIVO' };
+  }
+
+  // 3. Check in-memory trial records for matching IP, Device Fingerprint, or Email
+  const foundRecord = usedTrialRecords.find(r => 
+    (normIp && r.ip === normIp) ||
+    (normFp && r.deviceFp === normFp) ||
+    (normEmail && r.email && r.email.toLowerCase() === normEmail)
+  );
+
+  if (foundRecord) {
+    const matchField = (normEmail && foundRecord.email?.toLowerCase() === normEmail) ? 'E-mail da Conta' : (normFp && foundRecord.deviceFp === normFp ? 'Dispositivo' : 'Endereço IP');
+    return { isExhausted: true, reason: `Uma degustação de 30 minutos já foi registrada anteriormente para este ${matchField}. Escolha um dos nossos planos para continuar usufruindo!`, matchedBy: matchField };
+  }
+
+  // 4. Check SQL Database tables
+  try {
+    if (normIp) {
+      const dbIpCheck = await querySql('SELECT * FROM used_trial_ips WHERE ip_or_fp = ?', [normIp]);
+      if (dbIpCheck.length > 0) {
+        if (!usedTrialIps.includes(normIp)) usedTrialIps.push(normIp);
+        return { isExhausted: true, reason: `O endereço IP (${normIp}) já utilizou o período de degustação.`, matchedBy: 'IP_DB' };
+      }
+    }
+
+    if (normFp) {
+      const dbFpCheck = await querySql('SELECT * FROM used_trial_ips WHERE ip_or_fp = ?', [normFp]);
+      if (dbFpCheck.length > 0) {
+        if (!usedTrialIps.includes(normFp)) usedTrialIps.push(normFp);
+        return { isExhausted: true, reason: 'Este dispositivo já utilizou o período de degustação.', matchedBy: 'DEVICE_DB' };
+      }
+    }
+
+    if (normIp || normFp || normEmail) {
+      const dbRecCheck = await querySql(
+        'SELECT * FROM used_trial_records WHERE ip = ? OR device_fp = ? OR LOWER(email) = ?',
+        [normIp || 'NONE', normFp || 'NONE', normEmail || 'NONE']
+      );
+      if (dbRecCheck.length > 0) {
+        return { isExhausted: true, reason: 'Já consta um registro de degustação vinculado a este dispositivo, IP ou conta.', matchedBy: 'REGISTRO_DB' };
+      }
+    }
+
+    // 5. Cross-check subscriber accounts in database
+    if (normEmail) {
+      const dbSub = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [normEmail]);
+      if (dbSub.length > 0) {
+        const sub = dbSub[0];
+        if (sub.status === 'EXPIRADO' || sub.status === 'SUSPENSO' || (sub.notes && sub.notes.includes('DEGUSTACAO_EXHAUSTED'))) {
+          return { isExhausted: true, reason: 'Esta conta de e-mail já encerrou a degustação gratuita de 30 minutos.', matchedBy: 'CONTA_SUB' };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[TRIAL CROSS CHECK DB WARNING]', err);
+  }
+
+  return { isExhausted: false, reason: 'Degustação de 30 minutos disponível.' };
+}
+
+/**
+ * Registers trial claim and links IP, Device Fingerprint, and Email together
+ */
+async function recordTrialClaimed(clientIp: string, deviceFp: string, email?: string, subscriberId?: string): Promise<void> {
+  const normIp = clientIp ? clientIp.trim() : '127.0.0.1';
+  const normFp = deviceFp ? deviceFp.trim() : '';
+  const normEmail = email ? email.trim().toLowerCase() : '';
+  const recId = `trial_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const claimedAt = new Date().toISOString();
+
+  if (normIp && !usedTrialIps.includes(normIp)) usedTrialIps.push(normIp);
+  if (normFp && !usedTrialIps.includes(normFp)) usedTrialIps.push(normFp);
+
+  const newRecord: TrialRecord = {
+    id: recId,
+    ip: normIp,
+    deviceFp: normFp,
+    email: normEmail,
+    subscriberId: subscriberId || undefined,
+    claimedAt
+  };
+
+  usedTrialRecords.push(newRecord);
+  savePersistentStore();
+
+  try {
+    if (normIp) {
+      await execSql('INSERT OR IGNORE INTO used_trial_ips (ip_or_fp) VALUES (?)', [normIp]).catch(() => {});
+    }
+    if (normFp) {
+      await execSql('INSERT OR IGNORE INTO used_trial_ips (ip_or_fp) VALUES (?)', [normFp]).catch(() => {});
+    }
+    await execSql(
+      'INSERT INTO used_trial_records (id, ip, device_fp, email, subscriber_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [recId, normIp, normFp, normEmail, subscriberId || null, claimedAt]
+    ).catch(e => console.warn('[SQL TRIAL RECORD INSERT ERROR]', e?.message));
+  } catch (err) {
+    console.error('[RECORD TRIAL CLAIMED DB ERROR]', err);
   }
 }
 
@@ -246,56 +375,52 @@ async function startServer() {
     }
   });
 
-  // 1.1 Strict Single-Trial IP & MAC/Device Control Endpoints
-  app.get('/api/trial/check', (req, res) => {
+  // 1.1 Strict Single-Trial IP, Device & Account Cross-Referencing Control Endpoints
+  app.get('/api/trial/check', async (req, res) => {
     const clientIp = getClientIp(req);
     const deviceFp = req.query.deviceFingerprint ? String(req.query.deviceFingerprint) : '';
+    const email = req.query.email ? String(req.query.email) : '';
 
-    const isIpUsed = usedTrialIps.includes(clientIp);
-    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
-    const used = isIpUsed || isDeviceUsed;
+    const check = await isTrialExhaustedCrossCheck(clientIp, deviceFp, email);
 
     res.json({
-      used,
+      used: check.isExhausted,
       clientIp,
-      message: used 
-        ? `Este endereço IP (${clientIp}) ou dispositivo já utilizou o teste grátis de 30 minutos.`
-        : `Degustação de 30 minutos disponível para o IP ${clientIp}.`
+      deviceFingerprint: deviceFp,
+      matchedBy: check.matchedBy,
+      message: check.reason
     });
   });
 
-  app.post('/api/trial/claim', (req, res) => {
+  app.post('/api/trial/claim', async (req, res) => {
     const clientIp = getClientIp(req);
     const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
+    const email = req.body.email ? String(req.body.email) : '';
+    const subscriberId = req.body.subscriberId ? String(req.body.subscriberId) : '';
 
-    const isIpUsed = usedTrialIps.includes(clientIp);
-    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
+    const check = await isTrialExhaustedCrossCheck(clientIp, deviceFp, email);
 
-    if (isIpUsed || isDeviceUsed) {
-      console.warn(`[TRIAL BLOCKED] Endereço IP ${clientIp} (Device: ${deviceFp || 'N/A'}) tentou iniciar nova degustação, mas já havia utilizado.`);
+    if (check.isExhausted) {
+      console.warn(`[TRIAL BLOCKED - STEALTH PREVENTION] IP ${clientIp} (Device: ${deviceFp || 'N/A'}, Email: ${email || 'N/A'}) tentou nova degustação. Motivo: ${check.matchedBy}`);
       return res.status(403).json({
         allowed: false,
         error: 'TRIAL_EXHAUSTED',
         clientIp,
-        message: `O seu endereço IP (${clientIp}) ou dispositivo já realizou a degustação de 30 minutos! É necessário criar uma conta e assinar um plano para usar o aplicativo.`
+        deviceFingerprint: deviceFp,
+        matchedBy: check.matchedBy,
+        message: check.reason || `Uma degustação gratuita de 30 minutos já foi realizada anteriormente para este dispositivo ou endereço IP (${clientIp}). É necessário assinar um dos nossos planos para continuar usufruindo.`
       });
     }
 
-    // Register IP and Device Fingerprint as used
-    if (!usedTrialIps.includes(clientIp)) {
-      usedTrialIps.push(clientIp);
-    }
-    if (deviceFp && !usedTrialIps.includes(deviceFp)) {
-      usedTrialIps.push(deviceFp);
-    }
+    // Register IP, Device Fingerprint, and Account Email linked together
+    await recordTrialClaimed(clientIp, deviceFp, email, subscriberId);
 
-    savePersistentStore();
-    console.log(`[TRIAL CLAIMED] Degustação de 30 min iniciada com sucesso para o IP: ${clientIp} (Device: ${deviceFp || 'N/A'})`);
+    console.log(`[TRIAL CLAIMED & LINKED] Degustação de 30 min iniciada. IP: ${clientIp} | Device: ${deviceFp || 'N/A'} | Email: ${email || 'Visitante'}`);
 
     res.json({
       allowed: true,
       clientIp,
-      message: 'Degustação de 30 minutos liberada para seu IP com sucesso!'
+      message: 'Degustação de 30 minutos liberada e vinculada com sucesso ao seu dispositivo!'
     });
   });
 
@@ -311,7 +436,10 @@ async function startServer() {
       const cleanEmail = String(email).trim().toLowerCase();
 
       // Check SQL database first
-      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
+      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]).catch(e => {
+        console.warn('[AUTH REGISTER DB FALLBACK]', e?.message);
+        return [];
+      });
       if (dbSubs.length > 0) {
         return res.status(400).json({ error: 'Este e-mail já está cadastrado no banco de dados. Faça login para acessar.' });
       }
@@ -450,27 +578,39 @@ async function startServer() {
         return res.status(400).json({ error: 'Código de verificação incorreto. Verifique o número digitado e tente novamente.' });
       }
 
-      // Code matched! Create active subscriber account in SQL database
+      // Code matched! Create subscriber account in SQL database
       const finalName = name || pending.name || cleanEmail.split('@')[0];
       const finalPassword = password || pending.password || '123456';
       const finalPhone = phone || pending.phone || '+55 (11) 99999-0000';
       const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
 
+      const clientIp = getClientIp(req);
+      const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
+      const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFp, cleanEmail);
+
       userPasswordsMap[cleanEmail] = finalPassword;
 
+      const subId = `sub-${Date.now()}`;
+      let accountNotes = `Conta ativada e confirmada via código de verificação por e-mail (IP: ${clientIp}).`;
+
+      if (trialCheck.isExhausted && !isAdm) {
+        accountNotes += ` [VÍNCULO ANTI-STEALTH: Degustação já utilizada no IP/Dispositivo]`;
+        await recordTrialClaimed(clientIp, deviceFp, cleanEmail, subId);
+      }
+
       const newSub: Subscriber = {
-        id: `sub-${Date.now()}`,
+        id: subId,
         name: finalName,
         email: cleanEmail,
         phone: finalPhone,
         plan: 'MENSAL',
-        status: 'ATIVO',
+        status: isAdm ? 'ATIVO' : (trialCheck.isExhausted ? 'PENDENTE' : 'ATIVO'),
         startedAt: new Date().toISOString().split('T')[0],
         expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
         totalPaid: isAdm ? 0 : 29.90,
         discountApplied: 0,
         isLifetimeExemptFromMonitoring: isAdm,
-        notes: `Conta ativada e confirmada via código de verificação por e-mail.`
+        notes: accountNotes
       };
 
       await execSql(`
@@ -534,25 +674,34 @@ async function startServer() {
       const cleanEmail = String(socialEmail).trim().toLowerCase();
       const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
 
+      const clientIp = getClientIp(req);
+      const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
+      const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFp, cleanEmail);
+
       // Check if user already exists
       const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
       let existingSub = dbSubs[0];
 
       if (!existingSub) {
+        const subId = `sub-${provider.toLowerCase()}-${Date.now()}`;
+        if (trialCheck.isExhausted && !isAdm) {
+          await recordTrialClaimed(clientIp, deviceFp, cleanEmail, subId);
+        }
+
         // Auto-create verified social account
         const newSub: Subscriber = {
-          id: `sub-${provider.toLowerCase()}-${Date.now()}`,
+          id: subId,
           name: socialName || `Usuário ${provider}`,
           email: cleanEmail,
           phone: socialPhone || '+55 (11) 99999-8888',
           plan: 'MENSAL',
-          status: 'ATIVO',
+          status: isAdm ? 'ATIVO' : (trialCheck.isExhausted ? 'PENDENTE' : 'ATIVO'),
           startedAt: new Date().toISOString().split('T')[0],
           expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
           totalPaid: isAdm ? 0 : 29.90,
           discountApplied: 0,
           isLifetimeExemptFromMonitoring: isAdm,
-          notes: `Conta autenticada e verificada via ${provider} OAuth (${verifiedToken || 'Token Válido'})`
+          notes: `Conta autenticada e verificada via ${provider} OAuth (${verifiedToken || 'Token Válido'})` + (trialCheck.isExhausted ? ' [VÍNCULO ANTI-STEALTH: Degustação já utilizada]' : '')
         };
 
         await execSql(`
@@ -615,8 +764,15 @@ async function startServer() {
       const cleanEmail = String(email).trim().toLowerCase();
       const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
 
+      const clientIp = getClientIp(req);
+      const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
+      const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFp, cleanEmail);
+
       // Check SQL DB
-      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
+      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]).catch(e => {
+        console.warn('[LOGIN DB FALLBACK]', e?.message);
+        return [];
+      });
       let existingDbSub = dbSubs[0];
       let existingSub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
 
@@ -653,6 +809,15 @@ async function startServer() {
           notes: existingDbSub.notes || ''
         };
         subscribersList.unshift(existingSub);
+      }
+
+      // Anti-stealth check for existing trial/pending status on login
+      if (existingSub && (existingSub.status === 'DEGUSTACAO' || existingSub.status === 'PENDENTE') && trialCheck.isExhausted && !isAdm) {
+        existingSub.status = 'EXPIRADO';
+        existingSub.notes = (existingSub.notes || '') + ' [SISTEMA ANTI-STEALTH: Degustação encerrada por vínculo de IP/Dispositivo]';
+        await execSql('UPDATE subscribers SET status = ? WHERE id = ?', ['EXPIRADO', existingSub.id]).catch(() => {});
+        await recordTrialClaimed(clientIp, deviceFp, cleanEmail, existingSub.id);
+        savePersistentStore();
       }
 
       // Trigger Webhook Event: user.login
@@ -972,7 +1137,18 @@ async function startServer() {
   // 5. AI Copy Generator with Gemini 3.6 Flash
   app.post('/api/ai/generate-copy', async (req, res) => {
     try {
-      const { product, template, customInstruction } = req.body;
+      const { product, template, customInstruction, deviceFingerprint, userEmail, isTrialMode } = req.body;
+
+      if (isTrialMode) {
+        const clientIp = getClientIp(req);
+        const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFingerprint, userEmail);
+        if (trialCheck.isExhausted) {
+          return res.status(403).json({
+            error: 'TRIAL_EXHAUSTED',
+            message: trialCheck.reason || 'Sua degustação gratuita de 30 minutos já foi encerrada para este dispositivo. Escolha um plano para liberar o robô de postagens.'
+          });
+        }
+      }
 
       if (!product) {
         return res.status(400).json({ error: 'Produto é obrigatório para gerar a copy' });

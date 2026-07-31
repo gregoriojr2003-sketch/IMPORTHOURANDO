@@ -57,8 +57,13 @@ export async function initDatabase(): Promise<void> {
     try {
       const fileBuffer = fs.readFileSync(DB_FILE);
       sqliteDb = new SQL.Database(fileBuffer);
+      sqliteDb.exec('PRAGMA integrity_check;');
     } catch (e) {
-      console.warn('[DATABASE] Existing database.sqlite corrupt or unreadable, creating fresh DB:', e);
+      console.warn('[DATABASE] Existing database.sqlite corrupt, malformed or unreadable, creating fresh DB:', e);
+      try {
+        if (sqliteDb) { sqliteDb.close(); sqliteDb = null; }
+        if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+      } catch (_) {}
       sqliteDb = new SQL.Database();
     }
   } else {
@@ -68,6 +73,29 @@ export async function initDatabase(): Promise<void> {
   await migrateSqliteSchema();
   saveSqliteDisk();
   console.log('[DATABASE] SQLite (sql.js) initialized and tables ready!');
+}
+
+/**
+ * Re-creates a clean SQLite database when disk image corruption is detected
+ */
+export async function resetCorruptedSqliteDb(): Promise<void> {
+  console.warn('[DATABASE RECOVERY] Resetting malformed/corrupted SQLite database file...');
+  try {
+    if (sqliteDb) {
+      try { sqliteDb.close(); } catch (_) {}
+      sqliteDb = null;
+    }
+    if (fs.existsSync(DB_FILE)) {
+      try { fs.unlinkSync(DB_FILE); } catch (_) {}
+    }
+    const SQL = await initSqlJs();
+    sqliteDb = new SQL.Database();
+    await migrateSqliteSchema();
+    saveSqliteDisk();
+    console.log('[DATABASE RECOVERY] Clean SQLite database successfully recreated!');
+  } catch (err) {
+    console.error('[DATABASE RECOVERY FAILED]', err);
+  }
 }
 
 /**
@@ -82,11 +110,11 @@ export async function querySql<T = any>(sql: string, params: any[] = []): Promis
   }
 
   if (!sqliteDb) {
-    throw new Error('SQLite database not initialized');
+    await resetCorruptedSqliteDb();
   }
 
   try {
-    const stmt = sqliteDb.prepare(sql);
+    const stmt = sqliteDb!.prepare(sql);
     if (params && params.length > 0) {
       stmt.bind(params);
     }
@@ -104,7 +132,18 @@ export async function querySql<T = any>(sql: string, params: any[] = []): Promis
     }
 
     return results;
-  } catch (err) {
+  } catch (err: any) {
+    const errMsg = String(err?.message || err);
+    if (errMsg.toLowerCase().includes('malformed') || errMsg.toLowerCase().includes('corrupt') || errMsg.toLowerCase().includes('disk image')) {
+      console.warn('[DATABASE QUERY ERROR] Malformed disk image detected! Executing self-healing reset...');
+      await resetCorruptedSqliteDb();
+      try {
+        return await querySql<T>(sql, params);
+      } catch (retryErr) {
+        console.error('[DATABASE RETRY QUERY FAILED]', retryErr);
+        return [];
+      }
+    }
     console.error('[DATABASE QUERY ERROR]', err, sql);
     throw err;
   }
@@ -122,13 +161,24 @@ export async function execSql(sql: string, params: any[] = []): Promise<void> {
   }
 
   if (!sqliteDb) {
-    throw new Error('SQLite database not initialized');
+    await resetCorruptedSqliteDb();
   }
 
   try {
-    sqliteDb.run(sql, params);
+    sqliteDb!.run(sql, params);
     saveSqliteDisk();
-  } catch (err) {
+  } catch (err: any) {
+    const errMsg = String(err?.message || err);
+    if (errMsg.toLowerCase().includes('malformed') || errMsg.toLowerCase().includes('corrupt') || errMsg.toLowerCase().includes('disk image')) {
+      console.warn('[DATABASE EXEC ERROR] Malformed disk image detected! Executing self-healing reset...');
+      await resetCorruptedSqliteDb();
+      try {
+        return await execSql(sql, params);
+      } catch (retryErr) {
+        console.error('[DATABASE RETRY EXEC FAILED]', retryErr);
+        return;
+      }
+    }
     console.error('[DATABASE EXEC ERROR]', err, sql);
     throw err;
   }
@@ -161,6 +211,17 @@ async function migrateSqliteSchema() {
     CREATE TABLE IF NOT EXISTS used_trial_ips (
       ip_or_fp TEXT PRIMARY KEY,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await execSql(`
+    CREATE TABLE IF NOT EXISTS used_trial_records (
+      id TEXT PRIMARY KEY,
+      ip TEXT,
+      device_fp TEXT,
+      email TEXT,
+      subscriber_id TEXT,
+      claimed_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -245,6 +306,15 @@ async function migratePostgresSchema() {
     CREATE TABLE IF NOT EXISTS used_trial_ips (
       ip_or_fp VARCHAR(255) PRIMARY KEY,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS used_trial_records (
+      id VARCHAR(255) PRIMARY KEY,
+      ip VARCHAR(255),
+      device_fp VARCHAR(255),
+      email VARCHAR(255),
+      subscriber_id VARCHAR(255),
+      claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS affiliate_configs (
