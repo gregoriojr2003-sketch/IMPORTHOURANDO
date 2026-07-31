@@ -50,7 +50,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newWebhookName, setNewWebhookName] = useState('');
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
   const [newWebhookSecret, setNewWebhookSecret] = useState('');
-  const [newWebhookEvents, setNewWebhookEvents] = useState<('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT')[]>(['DISPATCH_SUCCESS']);
+  const [newWebhookEvents, setNewWebhookEvents] = useState<('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT' | 'COPY_GENERATED' | 'USER_REGISTERED' | 'USER_LOGIN' | 'OFFER_FOUND')[]>(['DISPATCH_SUCCESS', 'COPY_GENERATED', 'USER_REGISTERED', 'USER_LOGIN']);
   const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { status: number | string; message: string; isSuccess: boolean }>>({});
 
@@ -717,10 +717,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1 text-[11px]">Gatilho de Eventos</label>
-                    <div className="flex items-center space-x-3 pt-1 text-[11px]">
-                      <label className="flex items-center space-x-1.5 cursor-pointer">
+                  <div className="sm:col-span-2">
+                    <label className="block text-slate-700 font-bold mb-1.5 text-[11px]">Gatilhos de Eventos do Webhook</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={newWebhookEvents.includes('copy.generated' as any) || newWebhookEvents.includes('COPY_GENERATED')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewWebhookEvents(prev => [...prev, 'COPY_GENERATED']);
+                            } else {
+                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'COPY_GENERATED' && ev !== ('copy.generated' as any)));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-bold text-slate-700">copy.generated</span>
+                      </label>
+
+                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={newWebhookEvents.includes('user.registered' as any) || newWebhookEvents.includes('USER_REGISTERED')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewWebhookEvents(prev => [...prev, 'USER_REGISTERED']);
+                            } else {
+                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'USER_REGISTERED' && ev !== ('user.registered' as any)));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-bold text-slate-700">user.registered</span>
+                      </label>
+
+                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={newWebhookEvents.includes('user.login' as any) || newWebhookEvents.includes('USER_LOGIN')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewWebhookEvents(prev => [...prev, 'USER_LOGIN']);
+                            } else {
+                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'USER_LOGIN' && ev !== ('user.login' as any)));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-bold text-slate-700">user.login</span>
+                      </label>
+
+                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
                         <input
                           type="checkbox"
                           checked={newWebhookEvents.includes('DISPATCH_SUCCESS')}
@@ -733,10 +781,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }}
                           className="rounded text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="font-medium text-slate-700">Disparo Realizado</span>
+                        <span className="font-bold text-slate-700">dispatch.success</span>
                       </label>
 
-                      <label className="flex items-center space-x-1.5 cursor-pointer">
+                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
                         <input
                           type="checkbox"
                           checked={newWebhookEvents.includes('PRICE_ALERT')}
@@ -749,7 +797,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }}
                           className="rounded text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="font-medium text-slate-700">Alerta de Preço</span>
+                        <span className="font-bold text-slate-700">price.alert</span>
+                      </label>
+
+                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={newWebhookEvents.includes('OFFER_FOUND')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewWebhookEvents(prev => [...prev, 'OFFER_FOUND']);
+                            } else {
+                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'OFFER_FOUND'));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-bold text-slate-700">offer.found</span>
                       </label>
                     </div>
                   </div>

@@ -156,9 +156,16 @@ async function startServer() {
   app.use(express.json());
 
   // Helper function to dispatch active webhooks asynchronously
-  async function dispatchWebhooksForEvent(eventType: 'DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT', payloadData: any) {
+  async function dispatchWebhooksForEvent(eventType: string, payloadData: any) {
     if (!affiliateConfig.webhooks || !Array.isArray(affiliateConfig.webhooks)) return;
-    const activeWebhooks = affiliateConfig.webhooks.filter(w => w.enabled && w.events.includes(eventType));
+
+    // Normalize event type comparison
+    const norm = (ev: string) => ev.toLowerCase().replace(/_/g, '.');
+    const targetNorm = norm(eventType);
+
+    const activeWebhooks = affiliateConfig.webhooks.filter(w =>
+      w.enabled && Array.isArray(w.events) && w.events.some(e => norm(e) === targetNorm || e === eventType)
+    );
 
     for (const wh of activeWebhooks) {
       try {
@@ -174,7 +181,7 @@ async function startServer() {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            event: eventType,
+            event: eventType.toLowerCase().includes('.') ? eventType : norm(eventType),
             timestamp: new Date().toISOString(),
             app: 'IMPORTHOURANDO',
             data: payloadData
@@ -488,6 +495,18 @@ async function startServer() {
       delete pendingAuthCodes[cleanEmail];
       savePersistentStore();
 
+      // Trigger Webhook Event: user.registered
+      dispatchWebhooksForEvent('user.registered', {
+        user: {
+          id: newSub.id,
+          name: newSub.name,
+          email: newSub.email,
+          phone: newSub.phone,
+          status: newSub.status
+        },
+        event: 'user.registered'
+      });
+
       res.json({
         success: true,
         message: 'Conta ativada com sucesso!',
@@ -559,6 +578,17 @@ async function startServer() {
         savePersistentStore();
       }
 
+      // Trigger Webhook Event: user.login
+      dispatchWebhooksForEvent('user.login', {
+        user: {
+          name: existingSub.name,
+          email: existingSub.email,
+          role: isAdm ? 'ADMIN' : 'SUBSCRIBER'
+        },
+        provider,
+        event: 'user.login'
+      });
+
       res.json({
         success: true,
         message: `Autenticado com sucesso via ${provider}!`,
@@ -624,6 +654,17 @@ async function startServer() {
         };
         subscribersList.unshift(existingSub);
       }
+
+      // Trigger Webhook Event: user.login
+      dispatchWebhooksForEvent('user.login', {
+        user: {
+          name: existingSub ? existingSub.name : cleanEmail.split('@')[0],
+          email: cleanEmail,
+          role: isAdm ? 'ADMIN' : 'SUBSCRIBER'
+        },
+        provider: 'EMAIL_PASSWORD',
+        event: 'user.login'
+      });
 
       res.json({
         success: true,
@@ -1049,6 +1090,16 @@ Diretrizes Obrigatórias de Formatação Viral:
       });
 
       const copyText = response.text || '';
+
+      // Trigger Webhook Event: copy.generated
+      dispatchWebhooksForEvent('copy.generated', {
+        productTitle: prod.title,
+        productPrice: prod.price,
+        copy: copyText,
+        niche: detectedNiche.name,
+        event: 'copy.generated'
+      });
+
       res.json({ copy: copyText, niche: detectedNiche, isAiGenerated: true });
     } catch (err: any) {
       console.error('Error generating AI copy:', err);

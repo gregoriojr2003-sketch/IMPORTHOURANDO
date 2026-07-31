@@ -101,7 +101,7 @@ export interface MarketplaceAffiliateAccounts {
 export interface BrandVoiceConfig {
   toneStyle: 'FORMAL' | 'HYPED' | 'SALES' | 'HUMOROUS' | 'URGENT' | 'CUSTOM';
   language?: 'PT_BR' | 'EN' | 'ES';
-  regionalStyle?: 'NENHUM' | 'NORDESTINO' | 'PAULISTANO' | 'MINEIRO' | 'CARIOCA' | 'GAUCHO' | 'FORMAL_CORPORATIVO' | 'DESCONTRAIDO_JOVEM' | 'PROMOCIONAL_AGRESSIVO' | 'ACHADINHOS_MEME';
+  regionalStyle?: 'NENHUM' | 'NORDESTINO' | 'PAULISTANO' | 'CARIOCA' | 'MINEIRO' | 'GAUCHO' | 'FORMAL_CORPORATIVO' | 'CASUAL_INFORMAL' | 'DESCONTRAIDO_JOVEM' | 'PROMOCIONAL_AGRESSIVO' | 'ACHADINHOS_MEME';
   brandName: string;
   greetingGreeting: string;
   customPromptInstructions: string;
@@ -115,7 +115,7 @@ export interface WebhookConfig {
   name: string;
   url: string;
   enabled: boolean;
-  events: ('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT')[];
+  events: ('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT' | 'COPY_GENERATED' | 'USER_REGISTERED' | 'USER_LOGIN' | 'OFFER_FOUND')[];
   secretToken?: string;
   createdAt: string;
   lastTriggeredAt?: string;
