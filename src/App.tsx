@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ProductOfferHunter } from './components/ProductOfferHunter';
@@ -18,13 +18,9 @@ import { LoginModal } from './components/LoginModal';
 import { LoginScreen } from './components/LoginScreen';
 import { PriceAlertsModal } from './components/PriceAlertsModal';
 import { SubscriptionPaywallModal } from './components/SubscriptionPaywallModal';
-import { BackupManagerModal } from './components/BackupManagerModal';
-import { FloatingDiagnosticLog } from './components/FloatingDiagnosticLog';
-import { Loader2, AlertTriangle, RefreshCw, WifiOff } from 'lucide-react';
 
 import { MercadoLivreProduct, WhatsAppChannel, OfferPostTemplate, DispatchedOffer, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, PriceAlertRule } from './types';
 import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCHED_LOGS, INITIAL_SCHEDULER_CONFIG, INITIAL_AFFILIATE_CONFIG, INITIAL_SUBSCRIBERS, INITIAL_ADMIN_NOTIFICATIONS, INITIAL_PRICE_ALERTS } from './data/initialData';
-import { AppBackupData } from './utils/backupUtils';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'channels' | 'templates' | 'logs' | 'subscribers'>('dashboard');
@@ -92,7 +88,6 @@ export default function App() {
   // Modals state
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertRule[]>(INITIAL_PRICE_ALERTS);
   const [isPriceAlertsOpen, setIsPriceAlertsOpen] = useState(false);
-  const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isConverterOpen, setIsConverterOpen] = useState(false);
   const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
@@ -102,83 +97,9 @@ export default function App() {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [selectedProductForDispatch, setSelectedProductForDispatch] = useState<MercadoLivreProduct | null>(null);
 
-  const handleRestoreBackup = (backup: AppBackupData, mode: 'REPLACE' | 'MERGE') => {
-    if (mode === 'REPLACE') {
-      if (backup.affiliateConfig) setAffiliateConfig(backup.affiliateConfig);
-      if (backup.channels) setChannels(backup.channels);
-      if (backup.templates) setTemplates(backup.templates);
-      if (backup.schedulerConfig) setSchedulerConfig(backup.schedulerConfig);
-      if (backup.mlMonitorConfig) setMlMonitorConfig(backup.mlMonitorConfig);
-      if (backup.products) setProducts(backup.products);
-      if (backup.dispatchedLogs) setDispatchedLogs(backup.dispatchedLogs);
-      if (backup.priceAlerts) setPriceAlerts(backup.priceAlerts);
-      if (backup.subscribers) setSubscribers(backup.subscribers);
-    } else {
-      // MERGE Mode
-      if (backup.affiliateConfig) {
-        setAffiliateConfig(prev => ({
-          ...prev,
-          ...backup.affiliateConfig,
-          marketplaceAccounts: {
-            ...prev.marketplaceAccounts,
-            ...backup.affiliateConfig?.marketplaceAccounts
-          },
-          brandVoice: {
-            ...prev.brandVoice,
-            ...backup.affiliateConfig?.brandVoice
-          }
-        }));
-      }
-
-      if (backup.channels) {
-        setChannels(prev => {
-          const existingIds = new Set(prev.map(c => c.id));
-          const newChannels = backup.channels!.filter(c => !existingIds.has(c.id));
-          return [...prev, ...newChannels];
-        });
-      }
-
-      if (backup.templates) {
-        setTemplates(prev => {
-          const existingIds = new Set(prev.map(t => t.id));
-          const newTemplates = backup.templates!.filter(t => !existingIds.has(t.id));
-          return [...prev, ...newTemplates];
-        });
-      }
-
-      if (backup.schedulerConfig) setSchedulerConfig(backup.schedulerConfig);
-      if (backup.mlMonitorConfig) setMlMonitorConfig(backup.mlMonitorConfig);
-
-      if (backup.products) {
-        setProducts(prev => {
-          const existingIds = new Set(prev.map(p => p.id));
-          const newProducts = backup.products!.filter(p => !existingIds.has(p.id));
-          return [...prev, ...newProducts];
-        });
-      }
-
-      if (backup.dispatchedLogs) {
-        setDispatchedLogs(prev => {
-          const existingIds = new Set(prev.map(d => d.id));
-          const newLogs = backup.dispatchedLogs!.filter(d => !existingIds.has(d.id));
-          return [...newLogs, ...prev];
-        });
-      }
-
-      if (backup.priceAlerts) {
-        setPriceAlerts(prev => {
-          const existingIds = new Set(prev.map(a => a.id));
-          const newAlerts = backup.priceAlerts!.filter(a => !existingIds.has(a.id));
-          return [...prev, ...newAlerts];
-        });
-      }
-    }
-  };
-
   // Tour Mode Paywall Gate State
   const [isSubscriptionPaywallOpen, setIsSubscriptionPaywallOpen] = useState(false);
   const [paywallActionName, setPaywallActionName] = useState('colocar o robô para funcionar');
-  const [expiredTrialNotice, setExpiredTrialNotice] = useState<string | undefined>(undefined);
 
   // Dark Mode State with localStorage & document element class toggle
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -211,37 +132,26 @@ export default function App() {
 
   // 30-Minute Trial Timer State
   const [trialSecondsLeft, setTrialSecondsLeft] = useState<number | undefined>(() => {
-    if (currentSubscriber?.status === 'DEGUSTACAO' || currentSubscriber?.status === 'PENDENTE') {
-      const expTime = currentSubscriber.trialExpiresAt 
-        ? new Date(currentSubscriber.trialExpiresAt).getTime()
-        : (currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000);
-      return Math.max(0, Math.floor((expTime - Date.now()) / 1000));
+    if (currentSubscriber?.status === 'DEGUSTACAO') {
+      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
+      return Math.max(0, Math.floor((exp - Date.now()) / 1000));
     }
     return undefined;
   });
 
   useEffect(() => {
-    if (currentSubscriber?.status !== 'DEGUSTACAO' && currentSubscriber?.status !== 'PENDENTE') {
+    if (currentSubscriber?.status !== 'DEGUSTACAO') {
       setTrialSecondsLeft(undefined);
       return;
     }
 
     const timer = setInterval(() => {
-      const expTime = currentSubscriber.trialExpiresAt 
-        ? new Date(currentSubscriber.trialExpiresAt).getTime()
-        : (currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000);
-      const left = Math.max(0, Math.floor((expTime - Date.now()) / 1000));
+      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
+      const left = Math.max(0, Math.floor((exp - Date.now()) / 1000));
       setTrialSecondsLeft(left);
 
       if (left <= 0) {
-        try {
-          localStorage.setItem('importhourando_degustacao_used', 'true');
-        } catch (e) {}
-
-        setExpiredTrialNotice('Sua degustação gratuita de 30 minutos expirou! Por favor, faça seu cadastro ou login com Google, Facebook ou e-mail abaixo e escolha um dos nossos planos para ativar seu acesso.');
-        setIsAuthenticated(false);
-        setCurrentUser(null);
-        setCurrentSubscriber(prev => prev ? ({ ...prev, status: 'EXPIRADO' }) : null);
+        setCurrentSubscriber(prev => ({ ...prev, status: 'EXPIRADO' }));
         setPaywallActionName('Sua degustação grátis de 30 minutos expirou! Escolha um dos nossos planos para continuar disparando ofertas com o robô.');
         setIsSubscriptionPaywallOpen(true);
         clearInterval(timer);
@@ -249,39 +159,12 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [currentSubscriber?.status, currentSubscriber?.expiresAt, currentSubscriber?.trialExpiresAt]);
+  }, [currentSubscriber?.status, currentSubscriber?.expiresAt]);
 
   const ensureActiveSubscription = (actionName = 'colocar o robô para funcionar'): boolean => {
     if (userRole === 'ADMIN') return true;
-    if (!currentSubscriber) return false;
-
-    // 1. Courtesy subscribers are 100% exempt and granted full access
-    if (currentSubscriber.status === 'CORTESIA' || currentSubscriber.isCourtesy) {
-      return true;
-    }
-
-    // 2. Active subscribers have full access
-    if (currentSubscriber.status === 'ATIVO') {
-      return true;
-    }
-
-    // 3. Suspended courtesy subscribers must be informed and directed to subscription page
-    if (currentSubscriber.status === 'SUSPENSO') {
-      setPaywallActionName('Sua cortesia de acesso foi suspensa pelo administrador. Por favor, escolha um plano para reativar seu acesso às ferramentas.');
-      setIsSubscriptionPaywallOpen(true);
-      return false;
-    }
-
-    // 4. Pending / Trial users have 30 minutes of free access
-    if (currentSubscriber.status === 'DEGUSTACAO' || currentSubscriber.status === 'PENDENTE') {
-      const expTime = currentSubscriber.trialExpiresAt 
-        ? new Date(currentSubscriber.trialExpiresAt).getTime()
-        : (currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000);
-      
-      if (expTime > Date.now()) {
-        return true;
-      }
-    }
+    if (currentSubscriber && currentSubscriber.status === 'ATIVO') return true;
+    if (currentSubscriber && currentSubscriber.status === 'DEGUSTACAO' && (trialSecondsLeft === undefined || trialSecondsLeft > 0)) return true;
 
     setPaywallActionName(actionName);
     setIsSubscriptionPaywallOpen(true);
@@ -310,59 +193,19 @@ export default function App() {
     totalNewOffersIdentified: 12
   });
 
-  const BACKOFF_DELAYS = [2, 5, 10]; // Exponential backoff delays in seconds
-  const [retryAttempt, setRetryAttempt] = useState<number>(0);
-  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
-  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const cancelRetryTimer = () => {
-    if (retryTimerRef.current) {
-      clearInterval(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-    setRetryCountdown(null);
-  };
-
-  const [loadingEndpoint, setLoadingEndpoint] = useState<string | null>(null);
-  const [timeoutEndpoints, setTimeoutEndpoints] = useState<string[]>([]);
-  const [syncState, setSyncState] = useState<'IDLE' | 'LOADING' | 'SUCCESS' | 'ERROR'>('IDLE');
-
-  const fetchEndpointWithTimeout = async (url: string, timeoutMs = 5000) => {
-    setLoadingEndpoint(url);
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
-
+  // Sync state with server API
+  const fetchAllData = async () => {
     try {
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timer);
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      return await res.json();
-    } catch (err: any) {
-      clearTimeout(timer);
-      const isTimeout = err.name === 'AbortError' || err.message?.includes('aborted');
-      console.warn(`[WATERFALL FETCH] ${url} -> ${isTimeout ? 'TIMEOUT (5s)' : err.message}`);
-      setTimeoutEndpoints(prev => prev.includes(url) ? prev : [...prev, url]);
-      throw err;
-    } finally {
-      setLoadingEndpoint(null);
-    }
-  };
+      const [resConfig, resProds, resChans, resTmpls, resLogs, resSubs, resMlMon] = await Promise.all([
+        fetch('/api/config').then(r => r.json()).catch(() => null),
+        fetch('/api/products').then(r => r.json()).catch(() => null),
+        fetch('/api/whatsapp/channels').then(r => r.json()).catch(() => null),
+        fetch('/api/templates').then(r => r.json()).catch(() => null),
+        fetch('/api/dispatches').then(r => r.json()).catch(() => null),
+        fetch('/api/admin/subscribers').then(r => r.json()).catch(() => null),
+        fetch('/api/ml/monitor').then(r => r.json()).catch(() => null)
+      ]);
 
-  // Sync state with server API via Sequential Waterfall Requests (5s timeout per request) with Exponential Backoff (2s, 5s, 10s)
-  const fetchAllData = async (attemptIndex = 0) => {
-    cancelRetryTimer();
-    setSyncState('LOADING');
-    if (attemptIndex === 0) {
-      setTimeoutEndpoints([]);
-    }
-
-    try {
-      // 1. /api/config
-      const resConfig = await fetchEndpointWithTimeout('/api/config', 5000);
       if (resConfig?.affiliateConfig) {
         const savedStr = localStorage.getItem('importhourando_affiliate_config');
         const savedLocal = savedStr ? JSON.parse(savedStr) : null;
@@ -386,25 +229,11 @@ export default function App() {
         } catch (e) {}
       }
       if (resConfig?.schedulerConfig) setSchedulerConfig(resConfig.schedulerConfig);
-
-      // 2. /api/products
-      const resProds = await fetchEndpointWithTimeout('/api/products', 5000);
+      if (resMlMon?.config) setMlMonitorConfig(resMlMon.config);
       if (resProds?.products) setProducts(resProds.products);
-
-      // 3. /api/whatsapp/channels
-      const resChans = await fetchEndpointWithTimeout('/api/whatsapp/channels', 5000);
       if (resChans?.channels) setChannels(resChans.channels);
-
-      // 4. /api/templates
-      const resTmpls = await fetchEndpointWithTimeout('/api/templates', 5000);
       if (resTmpls?.templates) setTemplates(resTmpls.templates);
-
-      // 5. /api/dispatches
-      const resLogs = await fetchEndpointWithTimeout('/api/dispatches', 5000);
       if (resLogs?.logs) setDispatchedLogs(resLogs.logs);
-
-      // 6. /api/admin/subscribers
-      const resSubs = await fetchEndpointWithTimeout('/api/admin/subscribers', 5000);
       if (resSubs?.subscribers) {
         setSubscribers(resSubs.subscribers);
         if (resSubs.notifications) setAdminNotifications(resSubs.notifications);
@@ -417,44 +246,13 @@ export default function App() {
           }
         }
       }
-
-      // 7. /api/ml/monitor
-      const resMlMon = await fetchEndpointWithTimeout('/api/ml/monitor', 5000);
-      if (resMlMon?.config) setMlMonitorConfig(resMlMon.config);
-
-      setSyncState('SUCCESS');
-      setRetryAttempt(0);
-      setRetryCountdown(null);
     } catch (e) {
-      console.error('[WATERFALL FETCH ERROR]', e);
-      setSyncState('ERROR');
-
-      // Exponential Backoff Retries: Attempt 0 -> Delay 2s, Attempt 1 -> Delay 5s, Attempt 2 -> Delay 10s
-      if (attemptIndex < BACKOFF_DELAYS.length) {
-        const delaySeconds = BACKOFF_DELAYS[attemptIndex];
-        const nextAttempt = attemptIndex + 1;
-        setRetryAttempt(nextAttempt);
-        setRetryCountdown(delaySeconds);
-
-        let secondsRemaining = delaySeconds;
-        retryTimerRef.current = setInterval(() => {
-          secondsRemaining -= 1;
-          if (secondsRemaining <= 0) {
-            cancelRetryTimer();
-            fetchAllData(attemptIndex + 1);
-          } else {
-            setRetryCountdown(secondsRemaining);
-          }
-        }, 1000);
-      } else {
-        // Exceeded max retries
-        setRetryCountdown(null);
-      }
+      console.log('Using default mock state');
     }
   };
 
   useEffect(() => {
-    fetchAllData(0);
+    fetchAllData();
 
     // Auto-polling every 4 seconds to sync live background offer dispatches and admin notifications
     const interval = setInterval(() => {
@@ -468,10 +266,7 @@ export default function App() {
       }).catch(() => {});
     }, 4000);
 
-    return () => {
-      clearInterval(interval);
-      cancelRetryTimer();
-    };
+    return () => clearInterval(interval);
   }, []);
 
   const handleMarkNotificationsRead = async () => {
@@ -721,16 +516,6 @@ export default function App() {
     } catch (e) {
       console.error('Session error', e);
     }
-
-    // Require subscription for non-admin users if degustacao is used or status is PENDENTE / EXPIRADO
-    const isDegustacaoUsed = typeof window !== 'undefined' && localStorage.getItem('importhourando_degustacao_used') === 'true';
-    if (!isAdm && user.subscriber?.status !== 'CORTESIA' && !user.subscriber?.isCourtesy) {
-      if (user.subscriber?.status === 'PENDENTE' || user.subscriber?.status === 'EXPIRADO' || isDegustacaoUsed) {
-        setPaywallActionName('Sua degustação de 30 minutos expirou! Escolha um dos nossos planos para assinar e liberar as ferramentas do robô.');
-        setIsSubscriptionPaywallOpen(true);
-        setActiveTab('plans');
-      }
-    }
   };
 
   const handleLogout = () => {
@@ -762,7 +547,6 @@ export default function App() {
       <LoginScreen
         subscribers={subscribers}
         onLoginSuccess={handleLoginSuccess}
-        expiredTrialNotice={expiredTrialNotice}
       />
     );
   }
@@ -777,7 +561,6 @@ export default function App() {
         schedulerConfig={schedulerConfig}
         onOpenConverter={() => handleOpenConverterWithProduct()}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenBackup={() => setIsBackupOpen(true)}
         onOpenScheduler={() => setIsSchedulerOpen(true)}
         onOpenMLMonitor={() => setIsMLMonitorOpen(true)}
         onManualTriggerScheduler={handleManualTriggerScheduler}
@@ -806,87 +589,6 @@ export default function App() {
         trialSecondsLeft={trialSecondsLeft}
         onOpenPaywall={() => setIsSubscriptionPaywallOpen(true)}
       />
-
-      {/* Exponential Backoff Retry Countdown Banner */}
-      {retryCountdown !== null && retryCountdown > 0 && (
-        <div className="bg-amber-600 text-white text-xs py-2.5 px-4 border-b border-amber-700 flex items-center justify-between gap-3 font-medium shadow-md animate-pulse">
-          <div className="flex items-center gap-2 overflow-hidden">
-            <RefreshCw className="w-4 h-4 text-amber-200 animate-spin shrink-0" />
-            <span>
-              <strong>Falha na conexão (Timeout ou Erro 5xx).</strong> Tentando reconectar em{' '}
-              <span className="bg-amber-950 px-2 py-0.5 rounded text-amber-200 font-mono text-sm font-black mx-1">
-                {retryCountdown}s
-              </span>{' '}
-              (Tentativa {retryAttempt} de {BACKOFF_DELAYS.length}: após {BACKOFF_DELAYS[retryAttempt - 1] || 2}s)...
-            </span>
-          </div>
-          <button
-            onClick={() => {
-              cancelRetryTimer();
-              fetchAllData(0);
-            }}
-            className="px-3 py-1 bg-amber-800 hover:bg-amber-900 text-white rounded-lg text-xs font-bold transition-all shrink-0 border border-amber-500 shadow-xs cursor-pointer flex items-center gap-1"
-          >
-            <RefreshCw className="w-3 h-3" />
-            <span>Tentar Agora</span>
-          </button>
-        </div>
-      )}
-
-      {/* Connection Failure Banner when all 3 backoff attempts fail */}
-      {syncState === 'ERROR' && retryCountdown === null && (
-        <div className="bg-red-700 text-white text-xs py-2.5 px-4 border-b border-red-800 flex items-center justify-between gap-3 font-medium shadow-md">
-          <div className="flex items-center gap-2 overflow-hidden">
-            <WifiOff className="w-4 h-4 text-red-200 shrink-0" />
-            <span>
-              <strong>Falha na Rede / Servidor Indisponível.</strong> As 3 tentativas de reconexão automática (2s, 5s, 10s) falharam.
-            </span>
-          </div>
-          <button
-            onClick={() => {
-              setRetryAttempt(0);
-              fetchAllData(0);
-            }}
-            className="px-3 py-1 bg-white text-red-800 hover:bg-red-50 rounded-lg text-xs font-black transition-all shrink-0 shadow-sm cursor-pointer flex items-center gap-1"
-          >
-            <RefreshCw className="w-3 h-3 text-red-700" />
-            <span>Tentar Reconectar</span>
-          </button>
-        </div>
-      )}
-
-      {/* Waterfall Diagnostic Sync Loading / Timeout Banner */}
-      {(loadingEndpoint || timeoutEndpoints.length > 0) && retryCountdown === null && (
-        <div className="bg-slate-900 text-white text-xs px-4 py-2 border-b border-slate-800 flex items-center justify-between gap-3 font-mono">
-          <div className="flex items-center gap-2 overflow-hidden">
-            {loadingEndpoint ? (
-              <>
-                <Loader2 className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />
-                <span className="text-slate-300">
-                  [WATERFALL SERVIDOR 5s] Sincronizando endpoint: <strong className="text-indigo-300">{loadingEndpoint}</strong>
-                </span>
-              </>
-            ) : (
-              <>
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className="text-slate-300">
-                  [WATERFALL DIAGNÓSTICO] Timeouts (5s) detectados em:{' '}
-                  <strong className="text-amber-300">{timeoutEndpoints.join(', ')}</strong>
-                </span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => fetchAllData(0)}
-              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-sans text-[11px] font-bold flex items-center gap-1 transition-colors"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>Re-sincronizar</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Global Client Mode Tour Banner / Subscription Status */}
       {userRole === 'SUBSCRIBER' && currentSubscriber.status !== 'ATIVO' && (
@@ -1038,22 +740,6 @@ export default function App() {
         config={affiliateConfig}
         onSaveConfig={(updated) => handleSaveConfig(updated, undefined)}
         onRequirePlanActivation={(actionName) => ensureActiveSubscription(actionName)}
-        onOpenBackup={() => setIsBackupOpen(true)}
-      />
-
-      <BackupManagerModal
-        isOpen={isBackupOpen}
-        onClose={() => setIsBackupOpen(false)}
-        affiliateConfig={affiliateConfig}
-        channels={channels}
-        templates={templates}
-        dispatchedLogs={dispatchedLogs}
-        schedulerConfig={schedulerConfig}
-        mlMonitorConfig={mlMonitorConfig}
-        products={products}
-        priceAlerts={priceAlerts}
-        subscribers={subscribers}
-        onRestoreBackup={handleRestoreBackup}
       />
 
       {isPlanManagerOpen && (
@@ -1106,9 +792,6 @@ export default function App() {
         onGoToPlans={handleGoToPlansFromPaywall}
         actionName={paywallActionName}
       />
-
-      {/* Floating Network Diagnostic Log Panel */}
-      <FloatingDiagnosticLog />
     </div>
   );
 }

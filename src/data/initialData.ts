@@ -286,19 +286,6 @@ export const INITIAL_AFFILIATE_CONFIG: AffiliateConfig = {
     brandSignatureText: '⚡ IMPORTHOURANDO - O robô que garante o menor preço para você!',
     customCtaPhrase: '👉 GARANTA A SUA OFERTA COM DESCONTO AQUI:'
   },
-  webhooks: [
-    {
-      id: 'webhook-sample-n8n',
-      name: 'Webhook N8N / Make (Notificação de Disparo)',
-      url: 'https://n8n.webhook.site/importhourando/disparos',
-      enabled: true,
-      events: ['DISPATCH_SUCCESS', 'DISPATCH_FAILURE'],
-      secretToken: 'sec_imp_token_9812',
-      createdAt: '2026-07-30',
-      lastStatus: 200,
-      lastTriggeredAt: 'Hoje'
-    }
-  ],
   defaultChannelInviteLink: 'https://whatsapp.com/channel/0029Va901823748291',
   mlAppId: '829401827410293',
   mlSecretKey: 'ml_sec_91028301928371',

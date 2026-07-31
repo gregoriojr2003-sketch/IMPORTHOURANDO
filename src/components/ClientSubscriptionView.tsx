@@ -129,10 +129,7 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
     }));
   };
 
-  const isCourtesy = currentSubscriber.status === 'CORTESIA' || currentSubscriber.isCourtesy === true;
-  const isSuspended = !isCourtesy && currentSubscriber.status !== 'ATIVO';
-  const isRevokedCourtesy = currentSubscriber.status === 'SUSPENSO';
-  const isPendingTrial = currentSubscriber.status === 'PENDENTE' || currentSubscriber.status === 'DEGUSTACAO';
+  const isSuspended = currentSubscriber.status !== 'ATIVO';
   const isAnual = currentSubscriber.plan === 'ANUAL';
   const isSemestral = currentSubscriber.plan === 'SEMESTRAL';
 
@@ -141,7 +138,7 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
       {/* Simulation Bar for Testing Active vs Suspended */}
       <div className="bg-slate-200/80 border border-slate-300 p-3 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 text-slate-700">
-          <span className="font-bold text-slate-900">🧪 Módulo de Teste de Visão do Cliente:</span>
+          <span className="font-bold text-slate-900">🧪 Modulo de Teste de Visão do Cliente:</span>
           <span>{currentSubscriber.name} ({currentSubscriber.email})</span>
         </div>
         <button
@@ -164,61 +161,8 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
         </button>
       </div>
 
-      {/* CORTESIA SPECIAL BANNER */}
-      {isCourtesy && (
-        <div className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-[#2D3277] p-6 md:p-8 rounded-3xl shadow-xl border-2 border-yellow-300 space-y-3 relative overflow-hidden">
-          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#2D3277] text-[#FFE600] text-xs font-black uppercase tracking-wider">
-                <Gift className="w-4 h-4 fill-current" />
-                CORTESIA ESPECIAL CONCEDIDA
-              </div>
-              <h2 className="text-2xl md:text-3xl font-black tracking-tight">
-                Você recebeu Acesso Gratuito por Cortesia! 🎁
-              </h2>
-              <p className="text-xs md:text-sm font-semibold max-w-2xl leading-relaxed text-[#1d2152]">
-                Sua conta possui isenção total de mensalidades e licença liberada sem prazos de expiração ou cobranças. Aproveite 100% de todas as ferramentas de automação do IMPORTHOURANDO!
-              </p>
-            </div>
-            <div className="bg-[#2D3277] text-white p-4 rounded-2xl text-center shrink-0 border border-yellow-300 shadow-md">
-              <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#FFE600] block">Plano Atual</span>
-              <span className="text-lg font-black block">CORTESIA ADM</span>
-              <span className="text-[10px] text-emerald-300 font-bold block mt-1">🟢 100% Isento de Cobrança</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* REVOKED COURTESY / SUSPENDED BANNER */}
-      {isRevokedCourtesy && (
-        <div className="bg-gradient-to-r from-red-900 via-rose-950 to-slate-900 text-white p-6 md:p-8 rounded-3xl shadow-xl border-2 border-red-500 space-y-5 relative overflow-hidden">
-          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-800 text-red-200 text-xs font-black uppercase tracking-wider border border-red-600">
-                <ShieldAlert className="w-4 h-4 text-red-300" />
-                CORTESIA DESATIVADA / ASSINATURA SUSPENSA
-              </div>
-              <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">
-                Sua cortesia de acesso foi suspensa 🔴
-              </h2>
-              <p className="text-xs md:text-sm text-slate-200 max-w-2xl leading-relaxed">
-                O benefício de acesso gratuito por cortesia desta conta foi desativado pelo administrador. Para continuar disparando ofertas e automatizando seus canais, escolha uma das opções de assinatura abaixo.
-              </p>
-            </div>
-
-            <button
-              onClick={() => handleStartUpgrade(currentSubscriber.plan || 'MENSAL', 0)}
-              className="px-6 py-4 rounded-2xl bg-gradient-to-r from-[#FFE600] to-amber-400 hover:from-amber-300 hover:to-amber-500 text-[#2D3277] font-black text-sm shadow-2xl hover:scale-105 transition-all flex items-center justify-center gap-2 shrink-0 border border-white/40 cursor-pointer"
-            >
-              <Zap className="w-5 h-5 fill-current text-[#2D3277]" />
-              ⚡ ASSINAR AGORA E DESBLOQUEAR
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* SUSPENSION ALERT BANNER - SPECIFICALLY FOR EXPIRED SUBSCRIBERS */}
-      {isSuspended && !isRevokedCourtesy && (
+      {isSuspended && (
         <div className="bg-gradient-to-r from-slate-800 via-indigo-950 to-blue-950 text-white p-6 md:p-8 rounded-3xl shadow-xl border-2 border-indigo-400 space-y-5 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -228,7 +172,7 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
                 DESBLOQUEAR FUNCIONALIDADES DO SEU PLANO
               </div>
               <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">
-                {isPendingTrial ? 'Sua degustação de 30 minutos expirou! ⏳' : 'Ative a sua licença para colocar o robô em produção ⚡'}
+                Ative a sua licença para colocar o robô em produção ⚡
               </h2>
               <p className="text-xs md:text-sm text-slate-200 max-w-2xl leading-relaxed">
                 <strong>Política do Sistema IMPORTHOURANDO:</strong> Não enviamos cobranças automáticas ou débitos recorrentes sem seu consentimento. Renove ou ative quando desejar para liberar 100% das ferramentas.

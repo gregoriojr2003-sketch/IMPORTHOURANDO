@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info, Database, Download, Webhook, Radio, Plus, Trash2, Send, Play, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig, WebhookConfig, BrandVoiceRegionalStyle } from '../types';
-import { WebhookSettings } from './WebhookSettings';
+import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info } from 'lucide-react';
+import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig } from '../types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -9,7 +8,6 @@ interface SettingsModalProps {
   config: AffiliateConfig;
   onSaveConfig: (updated: Partial<AffiliateConfig>) => void;
   onRequirePlanActivation?: (actionName?: string) => boolean;
-  onOpenBackup?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -17,10 +15,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   config,
   onSaveConfig,
-  onRequirePlanActivation,
-  onOpenBackup
+  onRequirePlanActivation
 }) => {
-  const [activeTab, setActiveTab] = useState<'MARKETPLACES' | 'WHATSAPP' | 'BRAND_VOICE' | 'WEBHOOKS'>('MARKETPLACES');
+  const [activeTab, setActiveTab] = useState<'MARKETPLACES' | 'WHATSAPP' | 'BRAND_VOICE'>('MARKETPLACES');
 
   // Marketplace Accounts
   const initialAccounts: MarketplaceAffiliateAccounts = config.marketplaceAccounts || {
@@ -46,15 +43,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [brandVoice, setBrandVoice] = useState<BrandVoiceConfig>(initialBrandVoice);
   const [defaultChannelInviteLink, setDefaultChannelInviteLink] = useState(config.defaultChannelInviteLink || 'https://whatsapp.com/channel/0029Va901823748291');
 
-  // Webhooks State
-  const [webhooks, setWebhooks] = useState<WebhookConfig[]>(config.webhooks || []);
-  const [newWebhookName, setNewWebhookName] = useState('');
-  const [newWebhookUrl, setNewWebhookUrl] = useState('');
-  const [newWebhookSecret, setNewWebhookSecret] = useState('');
-  const [newWebhookEvents, setNewWebhookEvents] = useState<('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT')[]>(['DISPATCH_SUCCESS']);
-  const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { status: number | string; message: string; isSuccess: boolean }>>({});
-
   const [customDomain, setCustomDomain] = useState(config.customDomain || '');
   const [whatsappApiType, setWhatsappApiType] = useState(config.whatsappApiType);
   const [whatsappToken, setWhatsappToken] = useState(config.whatsappToken);
@@ -69,9 +57,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (config.brandVoice) {
         setBrandVoice(config.brandVoice);
       }
-      if (config.webhooks) {
-        setWebhooks(config.webhooks);
-      }
       if (config.defaultChannelInviteLink) {
         setDefaultChannelInviteLink(config.defaultChannelInviteLink);
       }
@@ -84,96 +69,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleAddWebhook = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newWebhookUrl.trim()) return;
-
-    let url = newWebhookUrl.trim();
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = `https://${url}`;
-    }
-
-    const newWh: WebhookConfig = {
-      id: `wh-${Date.now()}`,
-      name: newWebhookName.trim() || 'Webhook Personalizado',
-      url,
-      enabled: true,
-      events: newWebhookEvents.length > 0 ? newWebhookEvents : ['DISPATCH_SUCCESS'],
-      secretToken: newWebhookSecret.trim() || undefined,
-      createdAt: new Date().toLocaleDateString('pt-BR'),
-      lastStatus: undefined
-    };
-
-    setWebhooks(prev => [...prev, newWh]);
-    setNewWebhookName('');
-    setNewWebhookUrl('');
-    setNewWebhookSecret('');
-    setNewWebhookEvents(['DISPATCH_SUCCESS']);
-  };
-
-  const handleDeleteWebhook = (id: string) => {
-    setWebhooks(prev => prev.filter(w => w.id !== id));
-  };
-
-  const handleToggleWebhook = (id: string) => {
-    setWebhooks(prev => prev.map(w => w.id === id ? { ...w, enabled: !w.enabled } : w));
-  };
-
-  const handleTestWebhook = async (wh: WebhookConfig) => {
-    setTestingWebhookId(wh.id);
-    setTestResults(prev => ({
-      ...prev,
-      [wh.id]: { status: 'Carregando...', message: 'Enviando pacote HTTP POST de teste...', isSuccess: false }
-    }));
-
-    try {
-      const res = await fetch('/api/webhooks/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: wh.url,
-          secretToken: wh.secretToken
-        })
-      });
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        const statusCode = data.httpStatus || 200;
-        setTestResults(prev => ({
-          ...prev,
-          [wh.id]: {
-            status: `${statusCode} OK`,
-            message: `Notificação entregue com sucesso no endpoint remoto (${statusCode})!`,
-            isSuccess: true
-          }
-        }));
-        setWebhooks(prev => prev.map(w => w.id === wh.id ? { ...w, lastStatus: statusCode, lastTriggeredAt: 'Agora (Teste)' } : w));
-      } else {
-        const statusCode = data.httpStatus || 500;
-        setTestResults(prev => ({
-          ...prev,
-          [wh.id]: {
-            status: `Erro ${statusCode}`,
-            message: data.error || 'Servidor de destino não respondeu ou recusou o envio.',
-            isSuccess: false
-          }
-        }));
-        setWebhooks(prev => prev.map(w => w.id === wh.id ? { ...w, lastStatus: statusCode } : w));
-      }
-    } catch (err: any) {
-      setTestResults(prev => ({
-        ...prev,
-        [wh.id]: {
-          status: 'Falha de Conexão',
-          message: err.message || 'Falha de rede ao tentar conectar ao webhook.',
-          isSuccess: false
-        }
-      }));
-    } finally {
-      setTestingWebhookId(null);
-    }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (onRequirePlanActivation && !onRequirePlanActivation('salvar as configurações e tags de afiliado')) {
@@ -183,7 +78,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       affiliateTag: marketplaceAccounts.mercadoLivreTag,
       marketplaceAccounts,
       brandVoice,
-      webhooks,
       defaultChannelInviteLink,
       customDomain,
       whatsappApiType,
@@ -208,8 +102,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-base text-slate-900">Configurações Gerais, Voz & Webhooks</h3>
-              <p className="text-xs text-slate-500">Credenciais de Afiliado, IA da Marca, WhatsApp e Webhooks Personalizados</p>
+              <h3 className="font-bold text-base text-slate-900">Configurações Gerais, Voz & WhatsApp</h3>
+              <p className="text-xs text-slate-500">Credenciais de Afiliado, Tom de Voz da Marca e API WhatsApp</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg">
@@ -218,57 +112,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 bg-slate-100 text-xs font-bold overflow-x-auto">
+        <div className="flex border-b border-slate-200 bg-slate-100 text-xs font-bold">
           <button
             type="button"
             onClick={() => setActiveTab('MARKETPLACES')}
-            className={`flex-1 min-w-[120px] py-3 px-2 text-center border-b-2 transition-all flex items-center justify-center space-x-1 ${
+            className={`flex-1 py-3 px-3 text-center border-b-2 transition-all flex items-center justify-center space-x-1.5 ${
               activeTab === 'MARKETPLACES'
                 ? 'border-[#2D3277] text-[#2D3277] bg-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Store className="w-3.5 h-3.5 text-[#3483FA]" />
-            <span>Afiliados</span>
+            <Store className="w-4 h-4 text-[#3483FA]" />
+            <span>Afiliados (6 Marketplaces)</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('BRAND_VOICE')}
-            className={`flex-1 min-w-[120px] py-3 px-2 text-center border-b-2 transition-all flex items-center justify-center space-x-1 ${
+            className={`flex-1 py-3 px-3 text-center border-b-2 transition-all flex items-center justify-center space-x-1.5 ${
               activeTab === 'BRAND_VOICE'
                 ? 'border-[#2D3277] text-[#2D3277] bg-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-            <span>Tom de Voz</span>
+            <Sparkles className="w-4 h-4 text-purple-600" />
+            <span>Tom de Voz & IA da Marca</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('WHATSAPP')}
-            className={`flex-1 min-w-[120px] py-3 px-2 text-center border-b-2 transition-all flex items-center justify-center space-x-1 ${
+            className={`flex-1 py-3 px-3 text-center border-b-2 transition-all flex items-center justify-center space-x-1.5 ${
               activeTab === 'WHATSAPP'
                 ? 'border-[#2D3277] text-[#2D3277] bg-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Server className="w-3.5 h-3.5 text-emerald-600" />
-            <span>API WhatsApp</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('WEBHOOKS')}
-            className={`flex-1 min-w-[120px] py-3 px-2 text-center border-b-2 transition-all flex items-center justify-center space-x-1 ${
-              activeTab === 'WEBHOOKS'
-                ? 'border-[#2D3277] text-[#2D3277] bg-white'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Webhook className="w-3.5 h-3.5 text-blue-600" />
-            <span>Webhooks ({webhooks.length})</span>
+            <Server className="w-4 h-4 text-emerald-600" />
+            <span>API & Canal do WhatsApp</span>
           </button>
         </div>
 
@@ -435,27 +316,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     );
                   })}
                 </div>
-              </div>
-
-              {/* Estilo Regional e Dialeto */}
-              <div>
-                <label className="block font-bold text-slate-800 mb-1 flex items-center space-x-1.5">
-                  <Globe className="w-4 h-4 text-purple-600" />
-                  <span>Estilo de Linguagem / Regionalismo do Brasil</span>
-                </label>
-                <select
-                  value={brandVoice.regionalStyle || 'pt-BR-nordestino'}
-                  onChange={(e) => setBrandVoice({ ...brandVoice, regionalStyle: e.target.value as BrandVoiceRegionalStyle })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 font-bold focus:outline-none focus:border-purple-600"
-                >
-                  <option value="pt-BR-nordestino">🌵 Português - Regional Nordestino (expressões locais, tom acolhedor e caloroso)</option>
-                  <option value="pt-BR-paulistano">🏙️ Português - Regional Paulistano (tom direto, ágil, urbano)</option>
-                  <option value="pt-BR-carioca">🏖️ Português - Regional Carioca (tom descontraído, leve)</option>
-                  <option value="pt-BR-formal">💼 Português - Formal / Corporativo</option>
-                  <option value="pt-BR-casual">💬 Português - Casual / Informal</option>
-                  <option value="en-US">🇺🇸 Inglês (US)</option>
-                  <option value="es-ES">🇪🇸 Espanhol (ES)</option>
-                </select>
               </div>
 
               {/* Nome da Marca & Saudação de Abertura */}
@@ -641,44 +501,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {activeTab === 'WEBHOOKS' && (
-            <WebhookSettings
-              webhooks={webhooks}
-              onSaveWebhooks={(updatedWebhooks) => {
-                setWebhooks(updatedWebhooks);
-              }}
-              onRequirePlanActivation={onRequirePlanActivation}
-            />
-          )}
-
-          {/* Local Backup Quick Action Box */}
-          {onOpenBackup && (
-            <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 rounded-lg bg-indigo-100 text-[#2D3277]">
-                  <Database className="w-4 h-4" />
-                </div>
-                <div>
-                  <h5 className="font-bold text-slate-800">Cópia de Segurança Local (Backup JSON)</h5>
-                  <p className="text-[11px] text-slate-500">Exporte ou restaure suas tags, canais e agendamentos.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenBackup();
-                }}
-                className="px-3 py-1.5 rounded-lg bg-[#2D3277] hover:bg-[#3D438F] text-white font-bold text-xs flex items-center space-x-1 transition-all shrink-0 shadow-xs"
-              >
-                <Download className="w-3.5 h-3.5 text-[#FFE600]" />
-                <span>Backup / Restaurar</span>
-              </button>
-            </div>
-          )}
-
           {/* Save Action */}
-          <div className="pt-1">
+          <div className="pt-3">
             <button
               type="submit"
               className="w-full bg-[#2D3277] hover:bg-[#3D438F] text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-sm text-sm"

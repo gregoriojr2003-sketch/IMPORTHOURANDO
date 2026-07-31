@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingBag, Send, Cpu, Settings, ShieldCheck, Zap, Plus, RefreshCw, Users, Crown, Bell, HelpCircle, LogOut, User, Sun, Moon, Database } from 'lucide-react';
+import { ShoppingBag, Send, Cpu, Settings, ShieldCheck, Zap, Plus, RefreshCw, Users, Crown, Bell, HelpCircle, LogOut, User, Sun, Moon } from 'lucide-react';
 import { AffiliateConfig, AutoSchedulerConfig, Subscriber } from '../types';
 import { AppLogo } from './AppLogo';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
@@ -11,7 +11,6 @@ interface HeaderProps {
   schedulerConfig?: AutoSchedulerConfig;
   onOpenConverter: () => void;
   onOpenSettings: () => void;
-  onOpenBackup?: () => void;
   onOpenScheduler: () => void;
   onOpenMLMonitor: () => void;
   onManualTriggerScheduler: () => void;
@@ -39,7 +38,6 @@ export const Header: React.FC<HeaderProps> = ({
   schedulerConfig,
   onOpenConverter,
   onOpenSettings,
-  onOpenBackup,
   onOpenScheduler,
   onOpenMLMonitor,
   onManualTriggerScheduler,
@@ -274,17 +272,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Sair</span>
                 </span>
               </button>
-
-              {/* Backup & Restore button */}
-              {onOpenBackup && (
-                <button
-                  onClick={onOpenBackup}
-                  className="p-1.5 text-[#FFE600] hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer flex items-center space-x-1"
-                  title="Backup & Restauração de Configurações (.json)"
-                >
-                  <Database className="w-4 h-4" />
-                </button>
-              )}
 
               {/* Settings button */}
               <button

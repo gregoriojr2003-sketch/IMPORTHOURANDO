@@ -98,36 +98,14 @@ export interface MarketplaceAffiliateAccounts {
   magaluTag: string; // e.g. magazinetop
 }
 
-export type BrandVoiceRegionalStyle = 
-  | 'pt-BR-nordestino'
-  | 'pt-BR-paulistano'
-  | 'pt-BR-carioca'
-  | 'pt-BR-formal'
-  | 'pt-BR-casual'
-  | 'en-US'
-  | 'es-ES';
-
 export interface BrandVoiceConfig {
   toneStyle: 'FORMAL' | 'HYPED' | 'SALES' | 'HUMOROUS' | 'URGENT' | 'CUSTOM';
-  regionalStyle?: BrandVoiceRegionalStyle;
   brandName: string;
   greetingGreeting: string;
   customPromptInstructions: string;
   emojiDensity: 'HIGH' | 'MEDIUM' | 'MINIMAL';
   brandSignatureText: string;
   customCtaPhrase: string;
-}
-
-export interface WebhookConfig {
-  id: string;
-  name: string;
-  url: string;
-  enabled: boolean;
-  events: ('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT')[];
-  secretToken?: string;
-  createdAt: string;
-  lastTriggeredAt?: string;
-  lastStatus?: number;
 }
 
 export interface AffiliateConfig {
@@ -139,9 +117,6 @@ export interface AffiliateConfig {
 
   // Brand Voice & AI Copy Directives
   brandVoice?: BrandVoiceConfig;
-
-  // Custom Webhooks Integration
-  webhooks?: WebhookConfig[];
 
   mlAppId?: string;
   mlSecretKey?: string;
@@ -168,7 +143,7 @@ export interface MLSearchFilter {
 }
 
 export type SubscriptionPlan = 'MENSAL' | 'SEMESTRAL' | 'ANUAL';
-export type SubscriberStatus = 'ATIVO' | 'CANCELADO' | 'RECONQUISTA_3M' | 'EXPIRADO' | 'PENDENTE' | 'DEGUSTACAO' | 'CORTESIA' | 'SUSPENSO';
+export type SubscriberStatus = 'ATIVO' | 'CANCELADO' | 'RECONQUISTA_3M' | 'EXPIRADO' | 'PENDENTE' | 'DEGUSTACAO';
 
 export interface Subscriber {
   id: string;
@@ -182,11 +157,6 @@ export interface Subscriber {
   totalPaid: number;
   discountApplied: number; // 0, 10, or 30 (%)
   isLifetimeExemptFromMonitoring: boolean; // Regra 1: Anual é marcado e possui Isenção/Desconto especial
-  isCourtesy?: boolean; // Cortesia marcada pelo Administrador (sem cobrança)
-  courtesyGrantedAt?: string;
-  courtesyRevokedAt?: string;
-  trialStartedAt?: string; // Início do período de degustação de 30 minutos
-  trialExpiresAt?: string; // Limite de 30 minutos do teste grátis
   cancellationRequestedAt?: string;
   reengagementDeadline?: string; // Regra 2: Janela de 3 meses de reconquista
   notes?: string;
@@ -231,16 +201,6 @@ export interface PriceAlertRule {
   enabled: boolean;
   createdAt: string;
   matchesCount?: number;
-}
-
-export interface MLMonitorConfig {
-  enabled: boolean;
-  affiliateTag: string;
-  targetChannelId: string;
-  minDiscount: number;
-  checkIntervalSeconds: number;
-  lastCheckedAt?: string;
-  totalNewOffersIdentified: number;
 }
 
 

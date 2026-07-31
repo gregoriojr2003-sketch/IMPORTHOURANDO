@@ -46,10 +46,11 @@ export function clearApiLogs() {
  */
 export function setupFetchInterceptor() {
   if (isIntercepted || typeof window === 'undefined' || !window.fetch) return;
+  isIntercepted = true;
 
   const originalFetch = window.fetch;
 
-  const interceptedFetch = async function (...args: Parameters<typeof fetch>) {
+  window.fetch = async function (...args) {
     const resource = args[0];
     const config = args[1] || {};
     
@@ -59,7 +60,7 @@ export function setupFetchInterceptor() {
     // Only log relative or absolute /api/ calls
     const isApiCall = url.includes('/api/');
     if (!isApiCall) {
-      return originalFetch.apply(window, args);
+      return originalFetch.apply(this, args);
     }
 
     const id = `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -76,7 +77,7 @@ export function setupFetchInterceptor() {
     }
 
     try {
-      const response = await originalFetch.apply(window, args);
+      const response = await originalFetch.apply(this, args);
       const durationMs = Math.round(performance.now() - startTime);
 
       let responseSnippet: string | null = null;
@@ -151,22 +152,6 @@ export function setupFetchInterceptor() {
       throw error;
     }
   };
-
-  try {
-    Object.defineProperty(window, 'fetch', {
-      value: interceptedFetch,
-      writable: true,
-      configurable: true,
-    });
-    isIntercepted = true;
-  } catch (err) {
-    try {
-      (window as any).fetch = interceptedFetch;
-      isIntercepted = true;
-    } catch (e) {
-      console.warn('[API DIAGNOSTIC] Failed to attach fetch interceptor:', e);
-    }
-  }
 }
 
 /**

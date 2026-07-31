@@ -47,9 +47,6 @@ let processedMlOfferIds: Set<string> = new Set();
 // Persistent Disk Store File Setup
 const STORE_FILE = path.join(process.cwd(), 'data_store.json');
 
-// Track used trial IPs and Device Fingerprints to enforce strictly 1-time free trial per IP/MAC/Device
-let usedTrialIps: string[] = [];
-
 function loadPersistentStore() {
   try {
     if (fs.existsSync(STORE_FILE)) {
@@ -62,7 +59,6 @@ function loadPersistentStore() {
       if (data.channelsList && Array.isArray(data.channelsList) && data.channelsList.length > 0) channelsList = data.channelsList;
       if (data.templatesList && Array.isArray(data.templatesList) && data.templatesList.length > 0) templatesList = data.templatesList;
       if (data.adminPaymentConfig) adminPaymentConfig = data.adminPaymentConfig;
-      if (data.usedTrialIps && Array.isArray(data.usedTrialIps)) usedTrialIps = data.usedTrialIps;
       console.log('[PERSISTENCE] Data store loaded successfully from data_store.json');
     }
   } catch (err) {
@@ -79,8 +75,7 @@ function savePersistentStore() {
       subscribersList,
       channelsList,
       templatesList,
-      adminPaymentConfig,
-      usedTrialIps
+      adminPaymentConfig
     };
     fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
@@ -142,117 +137,11 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Helper function to dispatch active webhooks asynchronously
-  async function dispatchWebhooksForEvent(eventType: 'DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT', payloadData: any) {
-    if (!affiliateConfig.webhooks || !Array.isArray(affiliateConfig.webhooks)) return;
-    const activeWebhooks = affiliateConfig.webhooks.filter(w => w.enabled && w.events.includes(eventType));
-
-    for (const wh of activeWebhooks) {
-      try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'User-Agent': 'IMPORTHOURANDO-Bot-Webhook/1.0'
-        };
-        if (wh.secretToken) {
-          headers['X-Webhook-Secret'] = wh.secretToken;
-        }
-
-        const res = await fetch(wh.url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            event: eventType,
-            timestamp: new Date().toISOString(),
-            app: 'IMPORTHOURANDO',
-            data: payloadData
-          }),
-          signal: AbortSignal.timeout(6000)
-        });
-
-        wh.lastStatus = res.status;
-        wh.lastTriggeredAt = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-      } catch (err: any) {
-        console.error(`[WEBHOOK ERROR] Failed to send to ${wh.url}:`, err.message);
-        wh.lastStatus = 500;
-      }
-    }
-  }
-
-  // Helper function to extract client IP address accurately
-  function getClientIp(req: express.Request): string {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.length > 0) {
-      return forwarded.split(',')[0].trim();
-    }
-    if (Array.isArray(forwarded) && forwarded.length > 0) {
-      return forwarded[0].trim();
-    }
-    const realIp = req.headers['x-real-ip'];
-    if (typeof realIp === 'string' && realIp.length > 0) return realIp.trim();
-    return req.socket.remoteAddress || '127.0.0.1';
-  }
-
   // --- API ROUTES ---
 
   // 1. Health check
   app.get('/api/health', (req, res) => {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.json({ status: 'ok', engine: 'IMPORTHOURANDO-Cloud-Runner', time: new Date().toISOString() });
-  });
-
-  // 1.1 Strict Single-Trial IP & MAC/Device Control Endpoints
-  app.get('/api/trial/check', (req, res) => {
-    const clientIp = getClientIp(req);
-    const deviceFp = req.query.deviceFingerprint ? String(req.query.deviceFingerprint) : '';
-
-    const isIpUsed = usedTrialIps.includes(clientIp);
-    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
-    const used = isIpUsed || isDeviceUsed;
-
-    res.json({
-      used,
-      clientIp,
-      message: used 
-        ? `Este endereço IP (${clientIp}) ou dispositivo já utilizou o teste grátis de 30 minutos.`
-        : `Degustação de 30 minutos disponível para o IP ${clientIp}.`
-    });
-  });
-
-  app.post('/api/trial/claim', (req, res) => {
-    const clientIp = getClientIp(req);
-    const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
-
-    const isIpUsed = usedTrialIps.includes(clientIp);
-    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
-
-    if (isIpUsed || isDeviceUsed) {
-      console.warn(`[TRIAL BLOCKED] Endereço IP ${clientIp} (Device: ${deviceFp || 'N/A'}) tentou iniciar nova degustação, mas já havia utilizado.`);
-      return res.status(403).json({
-        allowed: false,
-        error: 'TRIAL_EXHAUSTED',
-        clientIp,
-        message: `O seu endereço IP (${clientIp}) ou dispositivo já realizou a degustação de 30 minutos! É necessário criar uma conta e assinar um plano para usar o aplicativo.`
-      });
-    }
-
-    // Register IP and Device Fingerprint as used
-    if (!usedTrialIps.includes(clientIp)) {
-      usedTrialIps.push(clientIp);
-    }
-    if (deviceFp && !usedTrialIps.includes(deviceFp)) {
-      usedTrialIps.push(deviceFp);
-    }
-
-    savePersistentStore();
-    console.log(`[TRIAL CLAIMED] Degustação de 30 min iniciada com sucesso para o IP: ${clientIp} (Device: ${deviceFp || 'N/A'})`);
-
-    res.json({
-      allowed: true,
-      clientIp,
-      message: 'Degustação de 30 minutos liberada para seu IP com sucesso!'
-    });
+    res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
   // 2. Mercado Livre & WhatsApp Affiliate Config
@@ -268,12 +157,7 @@ async function startServer() {
         marketplaceAccounts: {
           ...affiliateConfig.marketplaceAccounts,
           ...req.body.affiliateConfig.marketplaceAccounts
-        },
-        brandVoice: {
-          ...affiliateConfig.brandVoice,
-          ...req.body.affiliateConfig.brandVoice
-        },
-        webhooks: req.body.affiliateConfig.webhooks !== undefined ? req.body.affiliateConfig.webhooks : affiliateConfig.webhooks
+        }
       };
     }
     if (req.body.schedulerConfig) {
@@ -752,70 +636,10 @@ Diretrizes Obrigatórias de Formatação Viral:
         newLogs.push(logItem);
       }
 
-      // Asynchronous Webhook Notifications Trigger
-      dispatchWebhooksForEvent('DISPATCH_SUCCESS', {
-        dispatchedLogs: newLogs,
-        totalDispatched: newLogs.length,
-        product: prod
-      });
-
       res.json({ success: true, dispatchedCount: newLogs.length, logs: newLogs });
     } catch (err: any) {
       console.error('Error dispatching offer:', err);
       res.status(500).json({ error: err.message || 'Erro ao enviar oferta' });
-    }
-  });
-
-  // 7.1. Test Webhook Endpoint
-  app.post('/api/webhooks/test', async (req, res) => {
-    try {
-      const { url, secretToken } = req.body;
-      if (!url) {
-        return res.status(400).json({ error: 'URL do webhook é obrigatória.' });
-      }
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'IMPORTHOURANDO-Bot-Webhook/1.0'
-      };
-      if (secretToken) {
-        headers['X-Webhook-Secret'] = secretToken;
-      }
-
-      const testPayload = {
-        event: 'TEST_PING',
-        timestamp: new Date().toISOString(),
-        app: 'IMPORTHOURANDO',
-        message: '🔔 Teste de Notificação Webhook disparado com sucesso pelo IMPORTHOURANDO!',
-        sampleOffer: {
-          id: 'MLB38942019',
-          productTitle: 'Smart TV 55" Samsung 4K UHD Crystal UHD',
-          price: 2199.00,
-          originalPrice: 3199.00,
-          discountPercentage: 31,
-          affiliateUrl: 'https://mercadolivre.com/sec/2a8Fk9L?matext=ofertastop_app',
-          marketplace: 'MERCADO_LIVRE'
-        }
-      };
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(testPayload),
-        signal: AbortSignal.timeout(7000)
-      });
-
-      res.json({
-        success: response.ok,
-        httpStatus: response.status,
-        statusText: response.statusText
-      });
-    } catch (err: any) {
-      res.status(500).json({
-        success: false,
-        httpStatus: 500,
-        error: err.message || 'Falha de rede ao tentar conectar com a URL do webhook.'
-      });
     }
   });
 
@@ -1176,7 +1000,7 @@ Diretrizes Obrigatórias de Formatação Viral:
   // Admin update/add subscriber
   app.post('/api/admin/subscribers', (req, res) => {
     try {
-      const { id, name, email, phone, plan, status, notes, isLifetimeExemptFromMonitoring, discountApplied, totalPaid, isCourtesy, trialStartedAt, trialExpiresAt } = req.body;
+      const { id, name, email, phone, plan, status, notes, isLifetimeExemptFromMonitoring, discountApplied, totalPaid } = req.body;
       let existing = subscribersList.find(s => s.id === id || s.email === email);
 
       if (existing) {
@@ -1192,24 +1016,9 @@ Diretrizes Obrigatórias de Formatação Viral:
         if (discountApplied !== undefined) existing.discountApplied = Number(discountApplied);
         if (totalPaid !== undefined) existing.totalPaid = Number(totalPaid);
 
-        if (isCourtesy !== undefined) {
-          existing.isCourtesy = Boolean(isCourtesy);
-        }
-
-        // Handle CORTESIA status transition
-        if (existing.status === 'CORTESIA') {
-          existing.isCourtesy = true;
-          existing.totalPaid = 0;
-          existing.isLifetimeExemptFromMonitoring = true;
-          existing.courtesyGrantedAt = existing.courtesyGrantedAt || new Date().toLocaleString('pt-BR');
-        } else if (existing.status === 'SUSPENSO') {
-          existing.isCourtesy = false;
-          existing.courtesyRevokedAt = new Date().toLocaleString('pt-BR');
-        }
-
         if (isLifetimeExemptFromMonitoring !== undefined) {
           existing.isLifetimeExemptFromMonitoring = Boolean(isLifetimeExemptFromMonitoring);
-        } else if (existing.plan === 'ANUAL' || existing.status === 'CORTESIA') {
+        } else if (existing.plan === 'ANUAL') {
           existing.isLifetimeExemptFromMonitoring = true;
         }
 
@@ -1221,26 +1030,16 @@ Diretrizes Obrigatórias de Formatação Viral:
           existing.expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0];
         }
 
-        if (trialStartedAt) existing.trialStartedAt = trialStartedAt;
-        if (trialExpiresAt) existing.trialExpiresAt = trialExpiresAt;
-
         // Add admin log notification for profile status conversion
-        let notifMsg = `⚙️ CONVERSÃO ADM: ${existing.name} teve o perfil alterado para [Plano: ${existing.plan} | Status: ${existing.status}]`;
-        if (existing.status === 'CORTESIA') {
-          notifMsg = `🎁 CORTESIA CONCEDIDA: ${existing.name} recebeu acesso de cortesia do Administrador!`;
-        } else if (existing.status === 'SUSPENSO') {
-          notifMsg = `🚫 CORTESIA REVOGADA: A cortesia de ${existing.name} foi suspensa pelo Administrador.`;
-        }
-
         adminNotificationsList.unshift({
           id: `notif-${Date.now()}`,
-          type: existing.status === 'CORTESIA' ? 'NEW_SUBSCRIBER' : (existing.plan === 'ANUAL' ? 'ANUAL_EXEMPT' : 'PLAN_UPGRADE'),
+          type: existing.plan === 'ANUAL' ? 'ANUAL_EXEMPT' : 'PLAN_UPGRADE',
           subscriberName: existing.name,
           subscriberEmail: existing.email,
-          message: notifMsg,
+          message: `⚙️ CONVERSÃO ADM: ${existing.name} teve o perfil alterado para [Plano: ${existing.plan} | Status: ${existing.status}]`,
           timestamp: 'Agora mesmo',
           read: false,
-          badgeColor: existing.status === 'CORTESIA' ? 'bg-[#FFE600] text-[#2D3277]' : (existing.status === 'ATIVO' ? 'bg-emerald-600' : (existing.status === 'RECONQUISTA_3M' ? 'bg-amber-600' : 'bg-red-600'))
+          badgeColor: existing.status === 'ATIVO' ? 'bg-emerald-600' : (existing.status === 'RECONQUISTA_3M' ? 'bg-amber-600' : 'bg-red-600')
         });
 
         console.log(`[SUBSCRIBER CONVERSION ADM] Assinante ${existing.email} convertido: Plano ${oldPlan} -> ${existing.plan}, Status ${oldStatus} -> ${existing.status}`);
@@ -1248,41 +1047,32 @@ Diretrizes Obrigatórias de Formatação Viral:
         savePersistentStore();
         res.json({ success: true, subscriber: existing, message: 'Perfil e status do assinante convertidos com sucesso!' });
       } else {
-        const nowMs = Date.now();
-        const defaultTrialExp = new Date(nowMs + 30 * 60 * 1000).toISOString();
-
         const newSub: Subscriber = {
           id: `sub-${Date.now()}`,
           name: name || 'Novo Assinante',
           email: email || `user${Date.now()}@exemplo.com`,
           phone: phone || '+55 11 99000-0000',
           plan: plan || 'MENSAL',
-          status: status || 'PENDENTE',
+          status: status || 'ATIVO',
           startedAt: new Date().toISOString().split('T')[0],
-          expiresAt: status === 'CORTESIA' ? null : (plan === 'ANUAL' ? new Date(nowMs + 365 * 24 * 3600 * 1000).toISOString().split('T')[0] : new Date(nowMs + 30 * 24 * 3600 * 1000).toISOString().split('T')[0]),
-          totalPaid: status === 'CORTESIA' ? 0 : (plan === 'ANUAL' ? 247.00 : (plan === 'SEMESTRAL' ? 147.00 : (status === 'PENDENTE' ? 0 : 29.90))),
+          expiresAt: plan === 'ANUAL' ? new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0] : new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          totalPaid: plan === 'ANUAL' ? 247.00 : (plan === 'SEMESTRAL' ? 147.00 : 29.90),
           discountApplied: 0,
-          isLifetimeExemptFromMonitoring: status === 'CORTESIA' || plan === 'ANUAL',
-          isCourtesy: status === 'CORTESIA' || Boolean(isCourtesy),
-          courtesyGrantedAt: status === 'CORTESIA' ? new Date().toLocaleString('pt-BR') : undefined,
-          trialStartedAt: trialStartedAt || new Date().toISOString(),
-          trialExpiresAt: trialExpiresAt || defaultTrialExp,
-          notes: notes || 'Cadastrado na plataforma'
+          isLifetimeExemptFromMonitoring: plan === 'ANUAL',
+          notes: notes || 'Cadastrado via painel administrativo'
         };
         subscribersList.unshift(newSub);
 
         // Add admin notification
         adminNotificationsList.unshift({
           id: `notif-${Date.now()}`,
-          type: newSub.status === 'CORTESIA' ? 'NEW_SUBSCRIBER' : (newSub.plan === 'ANUAL' ? 'ANUAL_EXEMPT' : 'NEW_SUBSCRIBER'),
+          type: newSub.plan === 'ANUAL' ? 'ANUAL_EXEMPT' : 'NEW_SUBSCRIBER',
           subscriberName: newSub.name,
           subscriberEmail: newSub.email,
-          message: newSub.status === 'PENDENTE' 
-            ? `⏳ NOVO USUÁRIO PENDENTE: ${newSub.name} entrou na plataforma (Degustação 30min)`
-            : (newSub.status === 'CORTESIA' ? `🎁 CORTESIA CONCEDIDA: ${newSub.name} cadastrado com Cortesia!` : `✨ NOVO ASSINANTE CADASTRADO: ${newSub.name} iniciou no plano ${newSub.plan}!`),
+          message: `✨ NOVO ASSINANTE CADASTRADO: ${newSub.name} iniciou no plano ${newSub.plan}!`,
           timestamp: 'Agora mesmo',
           read: false,
-          badgeColor: newSub.status === 'CORTESIA' ? 'bg-[#FFE600] text-[#2D3277]' : (newSub.status === 'PENDENTE' ? 'bg-amber-500' : 'bg-emerald-600')
+          badgeColor: 'bg-emerald-600'
         });
 
         savePersistentStore();

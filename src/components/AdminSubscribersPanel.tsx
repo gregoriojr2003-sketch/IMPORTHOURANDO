@@ -23,7 +23,7 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
   onMarkNotificationsRead,
   onUpdateSubscriber
 }) => {
-  const [activeTab, setActiveTab] = useState<'ALL' | 'CORTESIA' | 'RULE_1_LIFETIME' | 'RULE_2_RECONQUEST' | 'RULE_3_DISCOUNTS' | 'NOTIFICATIONS' | 'PAYMENT_SETTINGS'>('ALL');
+  const [activeTab, setActiveTab] = useState<'ALL' | 'RULE_1_LIFETIME' | 'RULE_2_RECONQUEST' | 'RULE_3_DISCOUNTS' | 'NOTIFICATIONS' | 'PAYMENT_SETTINGS'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlanFilter, setSelectedPlanFilter] = useState<'ALL' | SubscriptionPlan>('ALL');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -41,38 +41,6 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
   const [editNotes, setEditNotes] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editSuccessMsg, setEditSuccessMsg] = useState('');
-
-  // Quick action: Grant or Revoke Cortesia
-  const handleToggleCourtesy = async (sub: Subscriber, enable: boolean) => {
-    try {
-      const newStatus = enable ? 'CORTESIA' : 'SUSPENSO';
-      const res = await fetch('/api/admin/subscribers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: sub.id,
-          name: sub.name,
-          email: sub.email,
-          phone: sub.phone,
-          plan: sub.plan,
-          status: newStatus,
-          isCourtesy: enable,
-          totalPaid: enable ? 0 : sub.totalPaid,
-          isLifetimeExemptFromMonitoring: enable,
-          notes: enable ? '🎁 Cortesia presenteada pelo Administrador (sem cobrança)' : '🚫 Cortesia revogada pelo Administrador'
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.subscriber) {
-        if (onUpdateSubscriber) {
-          onUpdateSubscriber(data.subscriber);
-        }
-        onRefresh();
-      }
-    } catch (err) {
-      console.error('Erro ao alterar cortesia:', err);
-    }
-  };
 
   // Payment Config State for ADM
   const [paymentConfig, setPaymentConfig] = useState<AdminPaymentConfig>({
@@ -191,9 +159,6 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
     
     if (!matchesSearch) return false;
 
-    if (activeTab === 'CORTESIA') {
-      return sub.status === 'CORTESIA' || sub.isCourtesy === true;
-    }
     if (activeTab === 'RULE_1_LIFETIME') {
       return sub.plan === 'ANUAL' || sub.isLifetimeExemptFromMonitoring;
     }
@@ -216,8 +181,7 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
   // Stats calculation
   const totalSubscribers = subscribers.length;
   const activeCount = subscribers.filter(s => s.status === 'ATIVO').length;
-  const courtesyCount = subscribers.filter(s => s.status === 'CORTESIA' || s.isCourtesy).length;
-  const lifetimeCount = subscribers.filter(s => s.plan === 'ANUAL' || s.isLifetimeExemptFromMonitoring).length;
+  const lifetimeCount = subscribers.filter(s => s.plan === 'VITALICIO').length;
   const reconquestCount = subscribers.filter(s => s.status === 'RECONQUISTA_3M').length;
   const convertedDiscountCount = subscribers.filter(s => (s.discountApplied || 0) > 0).length;
   const totalRevenue = subscribers.reduce((acc, curr) => acc + (curr.totalPaid || 0), 0);
@@ -283,58 +247,24 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
     switch (status) {
       case 'ATIVO':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Ativo
-          </span>
-        );
-      case 'CORTESIA':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black bg-[#FFE600] text-[#2D3277] border border-[#2D3277]/20 shadow-xs">
-            <Gift className="w-3.5 h-3.5 fill-current text-[#2D3277]" /> Cortesia Grátis
-          </span>
-        );
-      case 'PENDENTE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200">
-            <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Pendente (Degustação 30m)
-          </span>
-        );
-      case 'DEGUSTACAO':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200">
-            <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Degustação
-          </span>
-        );
-      case 'SUSPENSO':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-200">
-            <XCircle className="w-3.5 h-3.5 text-red-600" /> Cortesia Suspensa
-          </span>
-        );
-      case 'EXPIRADO':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-200">
-            <XCircle className="w-3.5 h-3.5 text-red-600" /> Expirado
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Ativo
           </span>
         );
       case 'RECONQUISTA_3M':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Reconquista (3 Meses)
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+            <AlertTriangle className="w-3 h-3 text-amber-600" /> Reconquista (3 Meses)
           </span>
         );
       case 'CANCELADO':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
             Cancelado
           </span>
         );
       default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
-            {status}
-          </span>
-        );
+        return null;
     }
   };
 
@@ -380,61 +310,52 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
       </div>
 
       {/* KPI Cards Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
-            <span>Total Clientes</span>
+            <span>Total de Clientes</span>
             <Users className="w-4 h-4 text-blue-500" />
           </div>
-          <div className="text-xl font-bold text-slate-900 mt-1.5">{totalSubscribers}</div>
-          <div className="text-[11px] text-emerald-600 font-medium mt-0.5">{activeCount} ativos no robô</div>
+          <div className="text-2xl font-bold text-slate-900 mt-2">{totalSubscribers}</div>
+          <div className="text-xs text-emerald-600 font-medium mt-1">{activeCount} ativos no robô</div>
         </div>
 
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
-            <span>Cortesias (Grátis)</span>
-            <Gift className="w-4 h-4 text-[#2D3277]" />
-          </div>
-          <div className="text-xl font-bold text-[#2D3277] mt-1.5">{courtesyCount}</div>
-          <div className="text-[11px] text-amber-600 font-bold mt-0.5">Sem cobrança (Isentos)</div>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
             <span>Licença Anual</span>
             <Crown className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-xl font-bold text-amber-600 mt-1.5">{lifetimeCount}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Regra 1: Anuais / Isentos</div>
+          <div className="text-2xl font-bold text-amber-600 mt-2">{lifetimeCount}</div>
+          <div className="text-xs text-slate-500 mt-1">Regra 1: Anuais / Isentos</div>
         </div>
 
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
-            <span>Ciclo Reconquista</span>
+            <span>Ciclo Reconquista (3M)</span>
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-xl font-bold text-amber-600 mt-1.5">{reconquestCount}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Regra 2: 3 Meses</div>
+          <div className="text-2xl font-bold text-amber-600 mt-2">{reconquestCount}</div>
+          <div className="text-xs text-slate-500 mt-1">Regra 2: Notificar benefícios</div>
         </div>
 
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
-            <span>Retenções</span>
+            <span>Retenções / Descontos</span>
             <Gift className="w-4 h-4 text-purple-500" />
           </div>
-          <div className="text-xl font-bold text-purple-600 mt-1.5">{convertedDiscountCount}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Regra 3: Descontos</div>
+          <div className="text-2xl font-bold text-purple-600 mt-2">{convertedDiscountCount}</div>
+          <div className="text-xs text-slate-500 mt-1">Regra 3: 10% Sem / 30% Vit</div>
         </div>
 
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm col-span-2 md:col-span-1">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm col-span-2 md:col-span-1">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
-            <span>Faturamento</span>
+            <span>Faturamento Bruto</span>
             <DollarSign className="w-4 h-4 text-emerald-500" />
           </div>
-          <div className="text-xl font-bold text-emerald-600 mt-1.5">
+          <div className="text-2xl font-bold text-emerald-600 mt-2">
             R$ {totalRevenue.toFixed(2).replace('.', ',')}
           </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Receita em licenças</div>
+          <div className="text-xs text-slate-500 mt-1">Receita acumulada em licenças</div>
         </div>
       </div>
 
@@ -451,18 +372,6 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
           >
             <Users className="w-4 h-4" />
             Todos os Clientes ({subscribers.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('CORTESIA')}
-            className={`pb-3 px-4 font-semibold text-sm transition-all border-b-2 flex items-center gap-2 ${
-              activeTab === 'CORTESIA'
-                ? 'border-[#FFE600] text-[#2D3277] bg-yellow-50 rounded-t-lg font-extrabold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Gift className="w-4 h-4 text-yellow-600" />
-            🎁 Cortesias ({courtesyCount})
           </button>
 
           <button
@@ -809,33 +718,13 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {sub.status === 'CORTESIA' || sub.isCourtesy ? (
-                              <button
-                                onClick={() => handleToggleCourtesy(sub, false)}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 font-extrabold text-xs border border-red-200 transition-all shadow-xs"
-                                title="Revogar/desativar benefício de cortesia deste usuário"
-                              >
-                                <XCircle className="w-3.5 h-3.5 text-red-600" />
-                                Revogar Cortesia
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleToggleCourtesy(sub, true)}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#FFE600] text-[#2D3277] hover:bg-yellow-400 font-black text-xs border border-yellow-400 transition-all shadow-xs"
-                                title="Presentear assinante com cortesia (acesso liberado sem cobrança)"
-                              >
-                                <Gift className="w-3.5 h-3.5 fill-current" />
-                                Presentear Cortesia
-                              </button>
-                            )}
-
                             <button
                               onClick={() => handleOpenEditModal(sub)}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2D3277] text-white hover:bg-[#1f2356] font-bold text-xs shadow-xs transition-all"
                               title="Converter perfil ou status do assinante"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              Converter Perfil
+                              Converter Perfil / Status
                             </button>
                             <a
                               href={`https://wa.me/${sub.phone.replace(/\D/g, '')}?text=Ol%C3%A1%20${encodeURIComponent(sub.name)}%2C%20tudo%20bem%3F%20Falo%20do%20app%20IMPORTHOURANDO%20!`}
@@ -1048,22 +937,6 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setEditStatus('CORTESIA');
-                    setEditIsExempt(true);
-                    setEditTotalPaid(0);
-                  }}
-                  className="p-2.5 rounded-xl border border-yellow-400 bg-yellow-50 hover:bg-yellow-100 text-[#2D3277] text-xs font-black flex items-center gap-2 transition-all text-left col-span-2"
-                >
-                  <Gift className="w-4 h-4 text-yellow-600 shrink-0 fill-current" />
-                  <div>
-                    <span className="block font-black">🎁 Presentear Cortesia (Sem Cobrança)</span>
-                    <span className="text-[10px] text-yellow-800 font-medium">Acesso 100% gratuito concedido pelo Administrador</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
                     setEditPlan('ANUAL');
                     setEditStatus('ATIVO');
                     setEditIsExempt(true);
@@ -1073,8 +946,8 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                 >
                   <Crown className="w-4 h-4 text-amber-600 shrink-0" />
                   <div>
-                    <span className="block font-black">1. Anual Isento</span>
-                    <span className="text-[10px] text-amber-700 font-normal">Plano Anual Isento</span>
+                    <span className="block font-black">1. Converter em Anual Isento</span>
+                    <span className="text-[10px] text-amber-700 font-normal">Plano Anual + Isenção de Cobrança</span>
                   </div>
                 </button>
 
@@ -1087,8 +960,8 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <div>
-                    <span className="block font-black">2. Reativar (Ativo)</span>
-                    <span className="text-[10px] text-emerald-700 font-normal">Liberar no robô</span>
+                    <span className="block font-black">2. Reativar Acesso (Ativo)</span>
+                    <span className="text-[10px] text-emerald-700 font-normal">Liberar no robô de automação</span>
                   </div>
                 </button>
 
@@ -1101,8 +974,8 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                 >
                   <RotateCcw className="w-4 h-4 text-blue-600 shrink-0" />
                   <div>
-                    <span className="block font-black">3. Reconquista (Regra 2)</span>
-                    <span className="text-[10px] text-blue-700 font-normal">3 Meses sem fidelidade</span>
+                    <span className="block font-black">3. Mover p/ Reconquista (Regra 2)</span>
+                    <span className="text-[10px] text-blue-700 font-normal">Regra de 3 Meses sem fidelidade</span>
                   </div>
                 </button>
 
@@ -1115,8 +988,8 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                 >
                   <XCircle className="w-4 h-4 text-red-600 shrink-0" />
                   <div>
-                    <span className="block font-black">4. Cancelar / Interromper</span>
-                    <span className="text-[10px] text-red-700 font-normal">Bloquear disparos</span>
+                    <span className="block font-black">4. Interromper / Cancelar</span>
+                    <span className="text-[10px] text-red-700 font-normal">Bloquear novos disparos</span>
                   </div>
                 </button>
               </div>
@@ -1135,11 +1008,8 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                     className="w-full px-3 py-2 border border-slate-300 bg-white rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#2D3277]"
                   >
                     <option value="ATIVO">🟢 ATIVO (Acesso Liberado)</option>
-                    <option value="CORTESIA">🎁 CORTESIA (Isento / Presente ADM)</option>
-                    <option value="SUSPENSO">🔴 SUSPENSO (Cortesia Revogada)</option>
-                    <option value="PENDENTE">⏳ PENDENTE (Em Degustação 30m)</option>
                     <option value="RECONQUISTA_3M">🟡 RECONQUISTA_3M (Regra 2 - 3 Meses)</option>
-                    <option value="CANCELADO">🔴 CANCELADO (Bloqueado)</option>
+                    <option value="CANCELADO">🔴 CANCELADO (Aguardando Desbloquear Funcionalidades)</option>
                   </select>
                 </div>
 
