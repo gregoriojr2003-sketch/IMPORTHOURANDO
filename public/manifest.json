@@ -3,9 +3,14 @@
   "name": "IMPORTHOURANDO - Robô de Afiliados",
   "icons": [
     {
-      "src": "/logo.svg",
-      "type": "image/svg+xml",
-      "sizes": "192x192 512x512"
+      "src": "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=192&h=192&fit=crop&crop=faces",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=512&h=512&fit=crop&crop=faces",
+      "type": "image/png",
+      "sizes": "512x512"
     }
   ],
   "start_url": "/",

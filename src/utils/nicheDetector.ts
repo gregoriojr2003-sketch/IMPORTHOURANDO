@@ -324,8 +324,6 @@ export function buildViralNicheCopy(params: {
   customCtaPhrase?: string;
   brandSignatureText?: string;
   channelInviteLink?: string;
-  language?: string;
-  regionalStyle?: string;
 }): { copy: string; niche: OfferNiche } {
   const niche = detectProductNiche(params.productTitle, params.category);
 
@@ -333,20 +331,6 @@ export function buildViralNicheCopy(params: {
   const formattedOrigPrice = params.originalPrice.toFixed(2).replace('.', ',');
   const formattedPrice = params.price.toFixed(2).replace('.', ',');
   const mpName = params.marketplaceName || 'Mercado Livre';
-
-  // Regional Slang Prefix
-  let regionalPrefix = '';
-  if (params.regionalStyle === 'NORDESTINO') {
-    regionalPrefix = '🌵 *Oxente! Pense num desconto arretado de bom!*\n';
-  } else if (params.regionalStyle === 'PAULISTANO') {
-    regionalPrefix = '🏙️ *Mano do céu, se liga nesse achado no precinho meeeu!*\n';
-  } else if (params.regionalStyle === 'MINEIRO') {
-    regionalPrefix = '☕ *Nuuua, ô trem bão demais da conta! Uai, olha esse preço:*\n';
-  } else if (params.regionalStyle === 'CARIOCA') {
-    regionalPrefix = '🏖️ *Coisa linda de prima! Tá de graça, parceiro:*\n';
-  } else if (params.regionalStyle === 'GAUCHO') {
-    regionalPrefix = '🧉 *Bah tchê! Que barbaridade de promoção bagual:*\n';
-  }
 
   // Random viral hook from niche
   const randomHook = niche.viralHooks[Math.floor(Math.random() * niche.viralHooks.length)];
@@ -357,7 +341,6 @@ export function buildViralNicheCopy(params: {
   const signature = params.brandSignatureText ? `\n\n${params.brandSignatureText}` : '\n\n⚡ *IMPORTHOURANDO - Garantindo o menor preço para você!*';
 
   let copy = `${greeting}\n\n`;
-  if (regionalPrefix) copy += `${regionalPrefix}`;
   copy += `${niche.badge}\n`;
   copy += `${randomHook}\n\n`;
   copy += `📦 *${params.productTitle}* (${mpName})\n\n`;

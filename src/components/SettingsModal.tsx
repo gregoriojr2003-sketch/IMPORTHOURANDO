@@ -50,7 +50,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newWebhookName, setNewWebhookName] = useState('');
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
   const [newWebhookSecret, setNewWebhookSecret] = useState('');
-  const [newWebhookEvents, setNewWebhookEvents] = useState<('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT' | 'COPY_GENERATED' | 'USER_REGISTERED' | 'USER_LOGIN' | 'OFFER_FOUND')[]>(['DISPATCH_SUCCESS', 'COPY_GENERATED', 'USER_REGISTERED', 'USER_LOGIN']);
+  const [newWebhookEvents, setNewWebhookEvents] = useState<('DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT')[]>(['DISPATCH_SUCCESS']);
   const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { status: number | string; message: string; isSuccess: boolean }>>({});
 
@@ -436,48 +436,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Idioma & Sotaque Regional Brasileiro */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-purple-50/60 border border-purple-200/80 rounded-2xl">
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1 flex items-center space-x-1">
-                    <Globe className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Idioma da Copy da IA</span>
-                  </label>
-                  <select
-                    value={brandVoice.language || 'PT_BR'}
-                    onChange={(e) => setBrandVoice({ ...brandVoice, language: e.target.value as any })}
-                    className="w-full bg-white border border-purple-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs focus:outline-none focus:border-purple-600"
-                  >
-                    <option value="PT_BR">🇧🇷 Português (Brasil - Padrão)</option>
-                    <option value="EN">🇺🇸 English (United States / Global)</option>
-                    <option value="ES">🇪🇸 Español (América Latina)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1 flex items-center space-x-1">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Sotaque / Estilo Regional Brasileiro</span>
-                  </label>
-                  <select
-                    value={brandVoice.regionalStyle || 'NENHUM'}
-                    onChange={(e) => setBrandVoice({ ...brandVoice, regionalStyle: e.target.value as any })}
-                    className="w-full bg-white border border-purple-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs focus:outline-none focus:border-purple-600"
-                  >
-                    <option value="NENHUM">🌐 Padrão Nacional (Sem Sotaque Específico)</option>
-                    <option value="NORDESTINO">🌵 Estilo Nordestino ("Oxente", "Pense num desconto arretado!", "Eita guri!")</option>
-                    <option value="PAULISTANO">🏙️ Estilo Paulistano ("Mano do céu, que achado meeeu!", "No precinho!")</option>
-                    <option value="MINEIRO">☕ Estilo Mineiro ("Nuuua, ô trem bão demais da conta!", "Uai, olha esse preço!")</option>
-                    <option value="CARIOCA">🏖️ Estilo Carioca ("Coisa linda de prima!", "Tá de graça, parceiro!")</option>
-                    <option value="GAUCHO">🧉 Estilo Gaúcho / Sulino ("Bah tchê, que barbaridade!", "Tri legal!")</option>
-                    <option value="FORMAL_CORPORATIVO">💼 Executivo / Corporativo de Alta Classe</option>
-                    <option value="DESCONTRAIDO_JOVEM">🎧 Geração Z / TikToker (Com gírias atuais)</option>
-                    <option value="PROMOCIONAL_AGRESSIVO">📢 Locutor de Varejo / Black Friday Agressivo</option>
-                    <option value="ACHADINHOS_MEME">😂 Humor de Meme & Tio do WhatsApp</option>
-                  </select>
-                </div>
-              </div>
-
               {/* Nome da Marca & Saudação de Abertura */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>
@@ -717,58 +675,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
-                    <label className="block text-slate-700 font-bold mb-1.5 text-[11px]">Gatilhos de Eventos do Webhook</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
-                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
-                        <input
-                          type="checkbox"
-                          checked={newWebhookEvents.includes('copy.generated' as any) || newWebhookEvents.includes('COPY_GENERATED')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewWebhookEvents(prev => [...prev, 'COPY_GENERATED']);
-                            } else {
-                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'COPY_GENERATED' && ev !== ('copy.generated' as any)));
-                            }
-                          }}
-                          className="rounded text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-bold text-slate-700">copy.generated</span>
-                      </label>
-
-                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
-                        <input
-                          type="checkbox"
-                          checked={newWebhookEvents.includes('user.registered' as any) || newWebhookEvents.includes('USER_REGISTERED')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewWebhookEvents(prev => [...prev, 'USER_REGISTERED']);
-                            } else {
-                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'USER_REGISTERED' && ev !== ('user.registered' as any)));
-                            }
-                          }}
-                          className="rounded text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-bold text-slate-700">user.registered</span>
-                      </label>
-
-                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
-                        <input
-                          type="checkbox"
-                          checked={newWebhookEvents.includes('user.login' as any) || newWebhookEvents.includes('USER_LOGIN')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewWebhookEvents(prev => [...prev, 'USER_LOGIN']);
-                            } else {
-                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'USER_LOGIN' && ev !== ('user.login' as any)));
-                            }
-                          }}
-                          className="rounded text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-bold text-slate-700">user.login</span>
-                      </label>
-
-                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1 text-[11px]">Gatilho de Eventos</label>
+                    <div className="flex items-center space-x-3 pt-1 text-[11px]">
+                      <label className="flex items-center space-x-1.5 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={newWebhookEvents.includes('DISPATCH_SUCCESS')}
@@ -781,10 +691,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }}
                           className="rounded text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="font-bold text-slate-700">dispatch.success</span>
+                        <span className="font-medium text-slate-700">Disparo Realizado</span>
                       </label>
 
-                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
+                      <label className="flex items-center space-x-1.5 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={newWebhookEvents.includes('PRICE_ALERT')}
@@ -797,23 +707,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }}
                           className="rounded text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="font-bold text-slate-700">price.alert</span>
-                      </label>
-
-                      <label className="flex items-center space-x-1.5 cursor-pointer bg-white p-2 rounded-lg border border-slate-200">
-                        <input
-                          type="checkbox"
-                          checked={newWebhookEvents.includes('OFFER_FOUND')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewWebhookEvents(prev => [...prev, 'OFFER_FOUND']);
-                            } else {
-                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'OFFER_FOUND'));
-                            }
-                          }}
-                          className="rounded text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-bold text-slate-700">offer.found</span>
+                        <span className="font-medium text-slate-700">Alerta de Preço</span>
                       </label>
                     </div>
                   </div>

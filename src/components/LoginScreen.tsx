@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Zap, Smartphone } from 'lucide-react';
+import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Zap } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { Subscriber } from '../types';
 import { getDeviceFingerprint } from '../utils/deviceFingerprint';
-import { isSupabaseConfigured, signInWithGoogle, signUpWithSupabaseEmail, signInWithSupabaseEmail, getSupabase } from '../lib/supabase';
 
 interface LoginScreenProps {
   subscribers: Subscriber[];
@@ -25,7 +24,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const isTrialUsed = isLocalStorageTrialUsed || isIpUsedOnServer;
   const [mode, setMode] = useState<AuthMode>(() => (expiredTrialNotice || isLocalStorageTrialUsed) ? 'REGISTER' : 'LOGIN');
 
-  // Check IP & Device Fingerprint trial status and listen for Supabase Google Auth redirect session on mount
+  // Check IP & Device Fingerprint trial status on mount
   useEffect(() => {
     const checkIpTrial = async () => {
       try {
@@ -46,33 +45,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       }
     };
     checkIpTrial();
-
-    // Listen for active Supabase session (returning from Google OAuth)
-    if (isSupabaseConfigured()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        supabase.auth.getSession().then(async ({ data: { session } }) => {
-          if (session?.user?.email) {
-            const googleEmail = session.user.email;
-            const googleName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || googleEmail.split('@')[0];
-            
-            try {
-              const res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: googleEmail, password: session.user.id })
-              });
-              const authData = await res.json();
-              if (authData.user) {
-                onLoginSuccess(authData.user);
-              }
-            } catch (err) {
-              console.error('Error syncing Google OAuth user:', err);
-            }
-          }
-        });
-      }
-    }
   }, []);
 
   // Login form state
@@ -94,28 +66,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // Verification & Social Auth Modals State
-  const [verificationPending, setVerificationPending] = useState<{
-    email: string;
-    name: string;
-    password?: string;
-    phone?: string;
-    sampleCode?: string;
-  } | null>(null);
-  const [verificationCodeInput, setVerificationCodeInput] = useState('');
-
-  // WhatsApp OTP State
-  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
-  const [whatsappPhoneInput, setWhatsappPhoneInput] = useState('');
-  const [whatsappOtpSent, setWhatsappOtpSent] = useState(false);
-  const [whatsappOtpCode, setWhatsappOtpCode] = useState('');
-  const [whatsappInputPin, setWhatsappInputPin] = useState('');
-
-  // Social Auth Modal State
-  const [socialModalProvider, setSocialModalProvider] = useState<'Google' | 'Facebook' | null>(null);
-  const [socialEmailInput, setSocialEmailInput] = useState('');
-  const [socialNameInput, setSocialNameInput] = useState('');
 
   // Handle 30-minute guest trial start with IP & Device Fingerprint enforcement
   const handleStartGuest30MinTrial = async () => {
@@ -194,7 +144,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setRecoverSuccess(false);
   };
 
-  // Handle Login submission via Real Express DB & Supabase
+  // Handle Login submission
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -214,40 +164,75 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setIsLoading(true);
 
     try {
-      // Supabase Auth if configured
-      if (isSupabaseConfigured()) {
-        try {
-          await signInWithSupabaseEmail(cleanEmail, loginPassword);
-        } catch (supaErr: any) {
-          console.warn('[SUPABASE AUTH WARN]', supaErr.message);
-        }
-      }
-
-      // Real Database Authentication API Call
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: loginPassword, deviceFingerprint: getDeviceFingerprint() })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.user) {
-        setError(data.error || 'Erro ao efetuar login. Verifique suas credenciais.');
+      // 1. Admin Detection (Private backend email match)
+      if (cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br' || cleanEmail === 'admin') {
+        const adminSub = subscribers.find(s => s.email.toLowerCase() === 'gregoriojr2003@gmail.com') || subscribers[0];
+        onLoginSuccess({
+          name: adminSub?.name || 'Administrador (Proprietário)',
+          email: cleanEmail,
+          role: 'ADMIN',
+          subscriber: adminSub
+        });
         setIsLoading(false);
         return;
       }
 
-      onLoginSuccess(data.user);
+      // 2. Existing Subscriber Detection
+      const matchedSub = subscribers.find(s => s.email.toLowerCase() === cleanEmail);
+      if (matchedSub) {
+        const isAdmin = matchedSub.email.toLowerCase() === 'gregoriojr2003@gmail.com';
+        onLoginSuccess({
+          name: matchedSub.name,
+          email: matchedSub.email,
+          role: isAdmin ? 'ADMIN' : 'SUBSCRIBER',
+          subscriber: matchedSub
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. New User Login / Flexible Credentials
+      if (cleanEmail.includes('@') && cleanEmail.length > 5) {
+        const tempSub: Subscriber = {
+          id: `sub-${Date.now()}`,
+          name: cleanEmail.split('@')[0],
+          email: cleanEmail,
+          phone: '+55 (11) 99999-0000',
+          plan: 'MENSAL',
+          status: 'ATIVO',
+          startedAt: new Date().toISOString().split('T')[0],
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          totalPaid: 29.90,
+          discountApplied: 0,
+          isLifetimeExemptFromMonitoring: false,
+          notes: 'Conta registrada via login com e-mail'
+        };
+
+        await fetch('/api/admin/subscribers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(tempSub)
+        }).catch(() => {});
+
+        onLoginSuccess({
+          name: tempSub.name,
+          email: tempSub.email,
+          role: 'SUBSCRIBER',
+          subscriber: tempSub
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      setError('E-mail ou login não encontrado. Verifique os dados ou crie uma nova conta.');
     } catch (err) {
-      console.error('Login submit error:', err);
-      setError('Erro ao conectar ao banco de dados para autenticar.');
+      setError('Erro ao efetuar login. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle Account Registration via Mandatory Email Verification Code
+  // Handle Account Registration
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -273,81 +258,37 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setIsLoading(true);
 
     try {
-      // Step 1: Send 6-Digit Email Verification PIN Code
-      const res = await fetch('/api/auth/send-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: cleanName,
-          email: cleanEmail,
-          password: regPassword,
-          phone: cleanPhone,
-          deviceFingerprint: getDeviceFingerprint()
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || 'Erro ao gerar código de verificação de e-mail.');
-        setIsLoading(false);
-        return;
-      }
-
-      setVerificationPending({
-        email: cleanEmail,
+      const newSub: Subscriber = {
+        id: `sub-reg-${Date.now()}`,
         name: cleanName,
-        password: regPassword,
-        phone: cleanPhone,
-        sampleCode: data.verificationCode
-      });
-      setVerificationCodeInput(data.verificationCode || '');
-      setSuccessMsg(`Código de confirmação de 6 dígitos enviado para ${cleanEmail}! Confirmado para ativação.`);
-    } catch (err) {
-      console.error('Register send verification error:', err);
-      setError('Erro ao enviar código de verificação por e-mail.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        email: cleanEmail,
+        phone: cleanPhone || '+55 (11) 99999-0000',
+        plan: regPlan,
+        status: 'PENDENTE', // Open registration: status starts as PENDENTE until plan is chosen/activated
+        startedAt: new Date().toISOString().split('T')[0],
+        expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+        totalPaid: regPlan === 'ANUAL' ? 249.90 : (regPlan === 'SEMESTRAL' ? 149.90 : 29.90),
+        discountApplied: regPlan === 'ANUAL' ? 30 : (regPlan === 'SEMESTRAL' ? 15 : 0),
+        isLifetimeExemptFromMonitoring: regPlan === 'ANUAL',
+        notes: 'Nova conta cadastrada na plataforma'
+      };
 
-  // Step 2: Confirm 6-Digit Code and Activate Account
-  const handleVerifyCodeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verificationPending) return;
-
-    setError('');
-    setSuccessMsg('');
-    setIsLoading(true);
-
-    try {
-      const res = await fetch('/api/auth/verify-code', {
+      // Persist to backend server
+      await fetch('/api/admin/subscribers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: verificationPending.email,
-          code: verificationCodeInput.trim(),
-          name: verificationPending.name,
-          password: verificationPending.password,
-          phone: verificationPending.phone,
-          deviceFingerprint: getDeviceFingerprint()
-        })
+        body: JSON.stringify(newSub)
+      }).catch(() => {});
+
+      // Log the user in
+      onLoginSuccess({
+        name: newSub.name,
+        email: newSub.email,
+        role: 'SUBSCRIBER',
+        subscriber: newSub
       });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.user) {
-        setError(data.error || 'Código de verificação incorreto ou expirado.');
-        setIsLoading(false);
-        return;
-      }
-
-      setSuccessMsg('Conta ativada e verificada com sucesso!');
-      setVerificationPending(null);
-      onLoginSuccess(data.user);
     } catch (err) {
-      console.error('Verify code error:', err);
-      setError('Erro ao validar código de verificação.');
+      setError('Erro ao criar cadastro. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -355,130 +296,68 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   // Social SSO Handler (Google, WhatsApp & Facebook)
   const handleSocialAuth = async (provider: 'Google' | 'WhatsApp' | 'Facebook') => {
+    setIsLoading(true);
     setError('');
     setSuccessMsg('');
 
-    if (provider === 'WhatsApp') {
-      setWhatsappModalOpen(true);
-      setWhatsappPhoneInput(regPhone || '+55 (11) 99999-8888');
-      setWhatsappOtpSent(false);
-      setWhatsappInputPin('');
-      return;
-    }
-
-    if (provider === 'Google' && isSupabaseConfigured()) {
-      try {
-        setIsLoading(true);
-        await signInWithGoogle();
-      } catch (err: any) {
-        setError('Erro na autenticação com Google via Supabase.');
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // Open Social Modal for Google / Facebook confirmation
-    setSocialModalProvider(provider);
-    setSocialEmailInput(provider === 'Google' ? 'usuario.google@gmail.com' : 'usuario.facebook@hotmail.com');
-    setSocialNameInput(provider === 'Google' ? 'Usuário Google Auth' : 'Usuário Facebook Auth');
-  };
-
-  // Confirm Social OAuth Submission
-  const handleConfirmSocialSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!socialModalProvider || !socialEmailInput) return;
-
-    setIsLoading(true);
-    setError('');
-
     try {
-      const res = await fetch('/api/auth/social-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: socialModalProvider,
-          socialEmail: socialEmailInput.trim().toLowerCase(),
-          socialName: socialNameInput.trim() || `Usuário ${socialModalProvider}`,
-          verifiedToken: `OAUTH_VERIFIED_${Date.now()}`,
-          deviceFingerprint: getDeviceFingerprint()
-        })
-      });
+      const providerEmail = provider === 'Google'
+        ? 'usuario.google@gmail.com'
+        : (provider === 'WhatsApp' ? 'usuario.whatsapp@whatsapp.com' : 'usuario.facebook@hotmail.com');
+      
+      const providerName = provider === 'Google'
+        ? 'Usuário Google'
+        : (provider === 'WhatsApp' ? 'Usuário WhatsApp' : 'Usuário Facebook');
 
-      const data = await res.json();
+      const providerPhone = provider === 'WhatsApp' ? '+55 (11) 98888-9999' : '+55 (11) 98888-7777';
 
-      if (!res.ok || !data.user) {
-        setError(data.error || `Erro ao realizar login social via ${socialModalProvider}.`);
-        setIsLoading(false);
-        return;
+      // Check if user already exists
+      const existingSub = subscribers.find(s => s.email.toLowerCase() === providerEmail.toLowerCase());
+
+      if (existingSub) {
+        onLoginSuccess({
+          name: existingSub.name,
+          email: existingSub.email,
+          role: existingSub.email === 'gregoriojr2003@gmail.com' ? 'ADMIN' : 'SUBSCRIBER',
+          subscriber: existingSub
+        });
+      } else {
+        // Create new subscriber via Social Login (Status PENDENTE requiring subscription)
+        const newSocialSub: Subscriber = {
+          id: `sub-social-${Date.now()}`,
+          name: providerName,
+          email: providerEmail,
+          phone: providerPhone,
+          plan: 'MENSAL',
+          status: 'PENDENTE',
+          startedAt: new Date().toISOString().split('T')[0],
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          totalPaid: 29.90,
+          discountApplied: 0,
+          isLifetimeExemptFromMonitoring: false,
+          notes: `Cadastro realizado via ${provider}. Aguardando ativação de assinatura.`
+        };
+
+        // Persist to backend server
+        await fetch('/api/admin/subscribers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newSocialSub)
+        }).catch(() => {});
+
+        onLoginSuccess({
+          name: newSocialSub.name,
+          email: newSocialSub.email,
+          role: 'SUBSCRIBER',
+          subscriber: newSocialSub
+        });
       }
-
-      setSocialModalProvider(null);
-      setSuccessMsg(`Autenticado com sucesso via ${socialModalProvider}!`);
-      onLoginSuccess(data.user);
     } catch (err) {
-      setError('Erro ao validar token de autenticação social.');
+      setError(`Erro no login via ${provider}. Tente novamente.`);
     } finally {
       setIsLoading(false);
     }
   };
-
-  // WhatsApp OTP Code Sender & Verifier
-  const handleSendWhatsappOtp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!whatsappPhoneInput || whatsappPhoneInput.length < 8) {
-      setError('Informe um número de WhatsApp válido com DDD.');
-      return;
-    }
-
-    const generatedOtp = String(Math.floor(100000 + Math.random() * 900000));
-    setWhatsappOtpCode(generatedOtp);
-    setWhatsappInputPin(generatedOtp);
-    setWhatsappOtpSent(true);
-    setSuccessMsg(`Código SMS/WhatsApp de 6 dígitos gerado: ${generatedOtp}`);
-  };
-
-  const handleVerifyWhatsappOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (whatsappInputPin.trim() !== whatsappOtpCode.trim()) {
-      setError('Código OTP incorreto. Tente novamente.');
-      return;
-    }
-
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const cleanPhoneNum = whatsappPhoneInput.replace(/\D/g, '');
-      const res = await fetch('/api/auth/social-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'WhatsApp',
-          socialEmail: `${cleanPhoneNum}@whatsapp.com`,
-          socialName: `WhatsApp User (${whatsappPhoneInput})`,
-          socialPhone: whatsappPhoneInput,
-          verifiedToken: `WHATSAPP_OTP_VERIFIED_${whatsappOtpCode}`
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.user) {
-        setError(data.error || 'Erro ao autenticar com código WhatsApp.');
-        setIsLoading(false);
-        return;
-      }
-
-      setWhatsappModalOpen(false);
-      setSuccessMsg('Autenticado com sucesso via WhatsApp!');
-      onLoginSuccess(data.user);
-    } catch (err) {
-      setError('Erro ao verificar código de segurança WhatsApp.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleRecoverSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -662,26 +541,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
                 {/* Social Login Options */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium px-1 pb-1">
-                    <span>Acesso Rápido com Google:</span>
-                    {isSupabaseConfigured() ? (
-                      <span className="text-emerald-700 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
-                        <Sparkles className="w-3 h-3 text-emerald-600" /> Supabase Real OAuth
-                      </span>
-                    ) : (
-                      <span className="text-slate-600 font-medium text-[10px] bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
-                        Autenticação via Banco de Dados
-                      </span>
-                    )}
-                  </div>
-
                   <button
                     type="button"
                     onClick={() => handleSocialAuth('Google')}
                     disabled={isLoading}
                     className="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
                   >
-
                     <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                       <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
@@ -1036,211 +901,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         </div>
 
       </div>
-
-      {/* 1. MANDATORY EMAIL PIN VERIFICATION MODAL */}
-      {verificationPending && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in duration-200">
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mx-auto">
-                <Mail className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900">Confirme seu E-mail</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Para concluir seu cadastro com segurança, digite o código de verificação de <strong>6 dígitos</strong> enviado para <span className="font-bold text-blue-600">{verificationPending.email}</span>.
-              </p>
-            </div>
-
-            <form onSubmit={handleVerifyCodeSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 text-center">
-                  Código de Ativação PIN (6 Dígitos):
-                </label>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={verificationCodeInput}
-                  onChange={(e) => setVerificationCodeInput(e.target.value)}
-                  placeholder="123456"
-                  className="w-full text-center text-2xl font-mono tracking-widest py-3 rounded-xl border border-blue-300 bg-blue-50/50 text-blue-900 font-bold focus:ring-2 focus:ring-blue-600 outline-none"
-                  autoFocus
-                />
-                {verificationPending.sampleCode && (
-                  <p className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded-lg mt-2 font-mono text-center">
-                    🔑 Código de verificação gerado: <strong>{verificationPending.sampleCode}</strong>
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setVerificationPending(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-bold text-xs hover:bg-slate-100 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isLoading || verificationCodeInput.trim().length < 6}
-                  className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
-                >
-                  {isLoading ? 'Verificando...' : 'Confirmar e Ativar Conta'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 2. WHATSAPP OTP VERIFICATION MODAL */}
-      {whatsappModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in duration-200">
-            <div className="text-center space-y-1">
-              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                <Smartphone className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900">Autenticação WhatsApp / Celular</h3>
-              <p className="text-xs text-slate-600">
-                {!whatsappOtpSent
-                  ? 'Informe seu número de celular com DDD para receber o código SMS/WhatsApp.'
-                  : `Digite o código OTP de 6 dígitos enviado para ${whatsappPhoneInput}.`}
-              </p>
-            </div>
-
-            {!whatsappOtpSent ? (
-              <form onSubmit={handleSendWhatsappOtp} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Número do WhatsApp / Celular:
-                  </label>
-                  <input
-                    type="text"
-                    value={whatsappPhoneInput}
-                    onChange={(e) => setWhatsappPhoneInput(e.target.value)}
-                    placeholder="+55 (11) 99999-8888"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setWhatsappModalOpen(false)}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-bold text-xs hover:bg-slate-100 cursor-pointer"
-                  >
-                    Voltar
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md cursor-pointer"
-                  >
-                    Enviar Código OTP
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyWhatsappOtp} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 text-center">
-                    Código de Segurança OTP (6 Dígitos):
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={whatsappInputPin}
-                    onChange={(e) => setWhatsappInputPin(e.target.value)}
-                    placeholder="123456"
-                    className="w-full text-center text-2xl font-mono tracking-widest py-3 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-900 font-bold focus:ring-2 focus:ring-emerald-600 outline-none"
-                    autoFocus
-                  />
-                  <p className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded-lg mt-2 text-center font-mono">
-                    📲 Código OTP recebido no celular: <strong>{whatsappOtpCode}</strong>
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setWhatsappOtpSent(false)}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-bold text-xs hover:bg-slate-100 cursor-pointer"
-                  >
-                    Alterar Número
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isLoading || whatsappInputPin.trim().length < 6}
-                    className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs shadow-md cursor-pointer"
-                  >
-                    {isLoading ? 'Autenticando...' : 'Validar e Acessar'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 3. SOCIAL OAUTH (GOOGLE / FACEBOOK) VERIFICATION MODAL */}
-      {socialModalProvider && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in duration-200">
-            <div className="text-center space-y-1">
-              <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
-                <KeyRound className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900">Autenticação {socialModalProvider} OAuth</h3>
-              <p className="text-xs text-slate-600">
-                Confirme os dados da sua conta {socialModalProvider} para autorizar o acesso ao IMPORTHOURANDO.
-              </p>
-            </div>
-
-            <form onSubmit={handleConfirmSocialSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nome na Conta {socialModalProvider}:
-                </label>
-                <input
-                  type="text"
-                  value={socialNameInput}
-                  onChange={(e) => setSocialNameInput(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  E-mail da Conta {socialModalProvider}:
-                </label>
-                <input
-                  type="email"
-                  value={socialEmailInput}
-                  onChange={(e) => setSocialEmailInput(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setSocialModalProvider(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-bold text-xs hover:bg-slate-100 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-md cursor-pointer"
-                >
-                  {isLoading ? 'Autenticando...' : `Confirmar Login via ${socialModalProvider}`}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

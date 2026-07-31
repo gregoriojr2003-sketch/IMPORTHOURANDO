@@ -36,31 +36,7 @@ git push -u origin main
 
 ---
 
-### 2️⃣ Conexão Direta via Terminal SSH da Hostinger
-
-Com as credenciais do seu painel Hostinger, você pode se conectar diretamente ao servidor via terminal para clonar, instalar e rodar o projeto:
-
-```bash
-# 1. Conecte-se ao seu servidor Hostinger
-ssh -p 65002 u959973173@149.62.37.44
-
-# 2. Navegue até a pasta da sua aplicação (ex: public_html ou pasta do domínio)
-cd public_html
-
-# 3. Clone o repositório ou atualize o código existente
-git pull origin main
-
-# 4. Instale as dependências e faça o build em formato WebAssembly (compatível com a Hostinger)
-npm install
-npm run build
-
-# 5. Inicie a aplicação com o PM2 ou Node em produção
-npm run start
-```
-
----
-
-### 3️⃣ Configuração do Projeto na Hostinger (Node.js Application)
+### 2️⃣ Configuração do Projeto na Hostinger (Node.js Application)
 
 No painel de controle hPanel da Hostinger:
 

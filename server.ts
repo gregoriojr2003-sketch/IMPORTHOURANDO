@@ -7,7 +7,6 @@ import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCH
 import { MercadoLivreProduct, DispatchedOffer, OfferPostTemplate, WhatsAppChannel, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, AdminPaymentConfig } from './src/types.ts';
 import { detectProductNiche, buildViralNicheCopy } from './src/utils/nicheDetector.ts';
 import { sortProductsByPriorities } from './src/utils/productSorter.ts';
-import { initDatabase, querySql, execSql, currentDbEngine } from './server/db.ts';
 
 const currentFilename = typeof __filename !== 'undefined' ? __filename : '';
 const currentDirname = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
@@ -48,24 +47,8 @@ let processedMlOfferIds: Set<string> = new Set();
 // Persistent Disk Store File Setup
 const STORE_FILE = path.join(process.cwd(), 'data_store.json');
 
-// Track used trial IPs, Device Fingerprints, and linked Accounts to enforce strictly 1-time free trial per device
-export interface TrialRecord {
-  id: string;
-  ip: string;
-  deviceFp: string;
-  email: string;
-  subscriberId?: string;
-  claimedAt: string;
-}
-
+// Track used trial IPs and Device Fingerprints to enforce strictly 1-time free trial per IP/MAC/Device
 let usedTrialIps: string[] = [];
-let usedTrialRecords: TrialRecord[] = [];
-
-// Real database user passwords store (email -> password hash)
-let userPasswordsMap: Record<string, string> = {
-  'gregoriojr2003@gmail.com': '123456',
-  'admin@importhourando.com.br': '123456'
-};
 
 function loadPersistentStore() {
   try {
@@ -80,8 +63,6 @@ function loadPersistentStore() {
       if (data.templatesList && Array.isArray(data.templatesList) && data.templatesList.length > 0) templatesList = data.templatesList;
       if (data.adminPaymentConfig) adminPaymentConfig = data.adminPaymentConfig;
       if (data.usedTrialIps && Array.isArray(data.usedTrialIps)) usedTrialIps = data.usedTrialIps;
-      if (data.usedTrialRecords && Array.isArray(data.usedTrialRecords)) usedTrialRecords = data.usedTrialRecords;
-      if (data.userPasswordsMap && typeof data.userPasswordsMap === 'object') userPasswordsMap = data.userPasswordsMap;
       console.log('[PERSISTENCE] Data store loaded successfully from data_store.json');
     }
   } catch (err) {
@@ -99,131 +80,11 @@ function savePersistentStore() {
       channelsList,
       templatesList,
       adminPaymentConfig,
-      usedTrialIps,
-      usedTrialRecords,
-      userPasswordsMap
+      usedTrialIps
     };
     fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf-8');
-
   } catch (err) {
     console.error('[PERSISTENCE] Error saving data store:', err);
-  }
-}
-
-/**
- * Cross-references IP address, Device Fingerprint, and Account Email
- * to prevent stealthy / repeated degustação usage.
- */
-async function isTrialExhaustedCrossCheck(clientIp: string, deviceFp?: string, email?: string): Promise<{ isExhausted: boolean; reason: string; matchedBy?: string }> {
-  const normEmail = email ? email.trim().toLowerCase() : '';
-  const normIp = clientIp ? clientIp.trim() : '';
-  const normFp = deviceFp ? deviceFp.trim() : '';
-
-  // 1. Check in-memory IP list
-  if (normIp && usedTrialIps.includes(normIp)) {
-    return { isExhausted: true, reason: `O seu endereço IP (${normIp}) já realizou a degustação gratuita de 30 minutos!`, matchedBy: 'IP' };
-  }
-
-  // 2. Check in-memory Device Fingerprint list
-  if (normFp && usedTrialIps.includes(normFp)) {
-    return { isExhausted: true, reason: 'Este dispositivo já realizou a degustação gratuita de 30 minutos! Assine um plano para continuar usufruindo.', matchedBy: 'DISPOSITIVO' };
-  }
-
-  // 3. Check in-memory trial records for matching IP, Device Fingerprint, or Email
-  const foundRecord = usedTrialRecords.find(r => 
-    (normIp && r.ip === normIp) ||
-    (normFp && r.deviceFp === normFp) ||
-    (normEmail && r.email && r.email.toLowerCase() === normEmail)
-  );
-
-  if (foundRecord) {
-    const matchField = (normEmail && foundRecord.email?.toLowerCase() === normEmail) ? 'E-mail da Conta' : (normFp && foundRecord.deviceFp === normFp ? 'Dispositivo' : 'Endereço IP');
-    return { isExhausted: true, reason: `Uma degustação de 30 minutos já foi registrada anteriormente para este ${matchField}. Escolha um dos nossos planos para continuar usufruindo!`, matchedBy: matchField };
-  }
-
-  // 4. Check SQL Database tables
-  try {
-    if (normIp) {
-      const dbIpCheck = await querySql('SELECT * FROM used_trial_ips WHERE ip_or_fp = ?', [normIp]);
-      if (dbIpCheck.length > 0) {
-        if (!usedTrialIps.includes(normIp)) usedTrialIps.push(normIp);
-        return { isExhausted: true, reason: `O endereço IP (${normIp}) já utilizou o período de degustação.`, matchedBy: 'IP_DB' };
-      }
-    }
-
-    if (normFp) {
-      const dbFpCheck = await querySql('SELECT * FROM used_trial_ips WHERE ip_or_fp = ?', [normFp]);
-      if (dbFpCheck.length > 0) {
-        if (!usedTrialIps.includes(normFp)) usedTrialIps.push(normFp);
-        return { isExhausted: true, reason: 'Este dispositivo já utilizou o período de degustação.', matchedBy: 'DEVICE_DB' };
-      }
-    }
-
-    if (normIp || normFp || normEmail) {
-      const dbRecCheck = await querySql(
-        'SELECT * FROM used_trial_records WHERE ip = ? OR device_fp = ? OR LOWER(email) = ?',
-        [normIp || 'NONE', normFp || 'NONE', normEmail || 'NONE']
-      );
-      if (dbRecCheck.length > 0) {
-        return { isExhausted: true, reason: 'Já consta um registro de degustação vinculado a este dispositivo, IP ou conta.', matchedBy: 'REGISTRO_DB' };
-      }
-    }
-
-    // 5. Cross-check subscriber accounts in database
-    if (normEmail) {
-      const dbSub = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [normEmail]);
-      if (dbSub.length > 0) {
-        const sub = dbSub[0];
-        if (sub.status === 'EXPIRADO' || sub.status === 'SUSPENSO' || (sub.notes && sub.notes.includes('DEGUSTACAO_EXHAUSTED'))) {
-          return { isExhausted: true, reason: 'Esta conta de e-mail já encerrou a degustação gratuita de 30 minutos.', matchedBy: 'CONTA_SUB' };
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[TRIAL CROSS CHECK DB WARNING]', err);
-  }
-
-  return { isExhausted: false, reason: 'Degustação de 30 minutos disponível.' };
-}
-
-/**
- * Registers trial claim and links IP, Device Fingerprint, and Email together
- */
-async function recordTrialClaimed(clientIp: string, deviceFp: string, email?: string, subscriberId?: string): Promise<void> {
-  const normIp = clientIp ? clientIp.trim() : '127.0.0.1';
-  const normFp = deviceFp ? deviceFp.trim() : '';
-  const normEmail = email ? email.trim().toLowerCase() : '';
-  const recId = `trial_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const claimedAt = new Date().toISOString();
-
-  if (normIp && !usedTrialIps.includes(normIp)) usedTrialIps.push(normIp);
-  if (normFp && !usedTrialIps.includes(normFp)) usedTrialIps.push(normFp);
-
-  const newRecord: TrialRecord = {
-    id: recId,
-    ip: normIp,
-    deviceFp: normFp,
-    email: normEmail,
-    subscriberId: subscriberId || undefined,
-    claimedAt
-  };
-
-  usedTrialRecords.push(newRecord);
-  savePersistentStore();
-
-  try {
-    if (normIp) {
-      await execSql('INSERT OR IGNORE INTO used_trial_ips (ip_or_fp) VALUES (?)', [normIp]).catch(() => {});
-    }
-    if (normFp) {
-      await execSql('INSERT OR IGNORE INTO used_trial_ips (ip_or_fp) VALUES (?)', [normFp]).catch(() => {});
-    }
-    await execSql(
-      'INSERT INTO used_trial_records (id, ip, device_fp, email, subscriber_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [recId, normIp, normFp, normEmail, subscriberId || null, claimedAt]
-    ).catch(e => console.warn('[SQL TRIAL RECORD INSERT ERROR]', e?.message));
-  } catch (err) {
-    console.error('[RECORD TRIAL CLAIMED DB ERROR]', err);
   }
 }
 
@@ -244,16 +105,8 @@ const ai = apiKey
   : null;
 
 async function startServer() {
-  // Initialize Database (SQLite by default, PostgreSQL if DATABASE_URL configured)
-  await initDatabase().catch(err => console.error('[DATABASE] Initialization error:', err));
-
   const app = express();
-  const rawPort = process.env.PORT;
-  let PORT: number | string = 3000;
-  if (rawPort) {
-    const parsed = parseInt(rawPort, 10);
-    PORT = !isNaN(parsed) && parsed > 0 ? parsed : rawPort;
-  }
+  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
   // --- SECURITY & CORS HEADERS MIDDLEWARE ---
   app.use((req, res, next) => {
@@ -290,16 +143,9 @@ async function startServer() {
   app.use(express.json());
 
   // Helper function to dispatch active webhooks asynchronously
-  async function dispatchWebhooksForEvent(eventType: string, payloadData: any) {
+  async function dispatchWebhooksForEvent(eventType: 'DISPATCH_SUCCESS' | 'DISPATCH_FAILURE' | 'PRICE_ALERT', payloadData: any) {
     if (!affiliateConfig.webhooks || !Array.isArray(affiliateConfig.webhooks)) return;
-
-    // Normalize event type comparison
-    const norm = (ev: string) => ev.toLowerCase().replace(/_/g, '.');
-    const targetNorm = norm(eventType);
-
-    const activeWebhooks = affiliateConfig.webhooks.filter(w =>
-      w.enabled && Array.isArray(w.events) && w.events.some(e => norm(e) === targetNorm || e === eventType)
-    );
+    const activeWebhooks = affiliateConfig.webhooks.filter(w => w.enabled && w.events.includes(eventType));
 
     for (const wh of activeWebhooks) {
       try {
@@ -315,7 +161,7 @@ async function startServer() {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            event: eventType.toLowerCase().includes('.') ? eventType : norm(eventType),
+            event: eventType,
             timestamp: new Date().toISOString(),
             app: 'IMPORTHOURANDO',
             data: payloadData
@@ -348,508 +194,65 @@ async function startServer() {
 
   // --- API ROUTES ---
 
-  // 1. Health check & Database Status
+  // 1. Health check
   app.get('/api/health', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    res.json({
-      status: 'ok',
-      engine: 'IMPORTHOURANDO-Cloud-Runner',
-      database: currentDbEngine,
-      time: new Date().toISOString()
-    });
+    res.json({ status: 'ok', engine: 'IMPORTHOURANDO-Cloud-Runner', time: new Date().toISOString() });
   });
 
-  app.get('/api/database/status', async (req, res) => {
-    try {
-      const subs = await querySql('SELECT COUNT(*) as count FROM subscribers');
-      const count = subs[0]?.count || subs[0]?.COUNT || 0;
-      res.json({
-        success: true,
-        engine: currentDbEngine,
-        status: 'CONNECTED',
-        tables: ['subscribers', 'used_trial_ips', 'affiliate_configs', 'admin_notifications'],
-        subscribersCount: Number(count),
-        info: currentDbEngine === 'POSTGRES'
-          ? 'Conectado com sucesso ao banco PostgreSQL via URL de Conexão.'
-          : 'Conectado ao banco relacional SQLite local (database.sqlite). Pronto para migrar para PostgreSQL atribuindo a variável DATABASE_URL.'
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Erro ao consultar banco de dados', details: err?.message });
-    }
-  });
-
-  // 1.1 Strict Single-Trial IP, Device & Account Cross-Referencing Control Endpoints
-  app.get('/api/trial/check', async (req, res) => {
+  // 1.1 Strict Single-Trial IP & MAC/Device Control Endpoints
+  app.get('/api/trial/check', (req, res) => {
     const clientIp = getClientIp(req);
     const deviceFp = req.query.deviceFingerprint ? String(req.query.deviceFingerprint) : '';
-    const email = req.query.email ? String(req.query.email) : '';
 
-    const check = await isTrialExhaustedCrossCheck(clientIp, deviceFp, email);
+    const isIpUsed = usedTrialIps.includes(clientIp);
+    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
+    const used = isIpUsed || isDeviceUsed;
 
     res.json({
-      used: check.isExhausted,
+      used,
       clientIp,
-      deviceFingerprint: deviceFp,
-      matchedBy: check.matchedBy,
-      message: check.reason
+      message: used 
+        ? `Este endereço IP (${clientIp}) ou dispositivo já utilizou o teste grátis de 30 minutos.`
+        : `Degustação de 30 minutos disponível para o IP ${clientIp}.`
     });
   });
 
-  app.post('/api/trial/claim', async (req, res) => {
+  app.post('/api/trial/claim', (req, res) => {
     const clientIp = getClientIp(req);
     const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
-    const email = req.body.email ? String(req.body.email) : '';
-    const subscriberId = req.body.subscriberId ? String(req.body.subscriberId) : '';
 
-    const check = await isTrialExhaustedCrossCheck(clientIp, deviceFp, email);
+    const isIpUsed = usedTrialIps.includes(clientIp);
+    const isDeviceUsed = Boolean(deviceFp) && usedTrialIps.includes(deviceFp);
 
-    if (check.isExhausted) {
-      console.warn(`[TRIAL BLOCKED - STEALTH PREVENTION] IP ${clientIp} (Device: ${deviceFp || 'N/A'}, Email: ${email || 'N/A'}) tentou nova degustação. Motivo: ${check.matchedBy}`);
+    if (isIpUsed || isDeviceUsed) {
+      console.warn(`[TRIAL BLOCKED] Endereço IP ${clientIp} (Device: ${deviceFp || 'N/A'}) tentou iniciar nova degustação, mas já havia utilizado.`);
       return res.status(403).json({
         allowed: false,
         error: 'TRIAL_EXHAUSTED',
         clientIp,
-        deviceFingerprint: deviceFp,
-        matchedBy: check.matchedBy,
-        message: check.reason || `Uma degustação gratuita de 30 minutos já foi realizada anteriormente para este dispositivo ou endereço IP (${clientIp}). É necessário assinar um dos nossos planos para continuar usufruindo.`
+        message: `O seu endereço IP (${clientIp}) ou dispositivo já realizou a degustação de 30 minutos! É necessário criar uma conta e assinar um plano para usar o aplicativo.`
       });
     }
 
-    // Register IP, Device Fingerprint, and Account Email linked together
-    await recordTrialClaimed(clientIp, deviceFp, email, subscriberId);
+    // Register IP and Device Fingerprint as used
+    if (!usedTrialIps.includes(clientIp)) {
+      usedTrialIps.push(clientIp);
+    }
+    if (deviceFp && !usedTrialIps.includes(deviceFp)) {
+      usedTrialIps.push(deviceFp);
+    }
 
-    console.log(`[TRIAL CLAIMED & LINKED] Degustação de 30 min iniciada. IP: ${clientIp} | Device: ${deviceFp || 'N/A'} | Email: ${email || 'Visitante'}`);
+    savePersistentStore();
+    console.log(`[TRIAL CLAIMED] Degustação de 30 min iniciada com sucesso para o IP: ${clientIp} (Device: ${deviceFp || 'N/A'})`);
 
     res.json({
       allowed: true,
       clientIp,
-      message: 'Degustação de 30 minutos liberada e vinculada com sucesso ao seu dispositivo!'
+      message: 'Degustação de 30 minutos liberada para seu IP com sucesso!'
     });
-  });
-
-  // 1.2 Real Database Auth Endpoints (Email/Password Register & Login via SQL DB)
-  app.post('/api/auth/register', async (req, res) => {
-    try {
-      const { name, email, password, phone } = req.body;
-
-      if (!email || !password) {
-        return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
-      }
-
-      const cleanEmail = String(email).trim().toLowerCase();
-
-      // Check SQL database first
-      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]).catch(e => {
-        console.warn('[AUTH REGISTER DB FALLBACK]', e?.message);
-        return [];
-      });
-      if (dbSubs.length > 0) {
-        return res.status(400).json({ error: 'Este e-mail já está cadastrado no banco de dados. Faça login para acessar.' });
-      }
-
-      // Store password in persistent map
-      userPasswordsMap[cleanEmail] = String(password);
-
-      // Create new subscriber record
-      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
-      const newSub: Subscriber = {
-        id: `sub-${Date.now()}`,
-        name: name || cleanEmail.split('@')[0],
-        email: cleanEmail,
-        phone: phone || '+55 (11) 99999-0000',
-        plan: 'MENSAL',
-        status: isAdm ? 'ATIVO' : 'PENDENTE',
-        startedAt: new Date().toISOString().split('T')[0],
-        expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
-        totalPaid: isAdm ? 0 : 29.90,
-        discountApplied: 0,
-        isLifetimeExemptFromMonitoring: isAdm,
-        notes: `Cadastro direto via e-mail/senha. Banco SQL (${currentDbEngine}) atualizado.`
-      };
-
-      // Insert into SQL DB
-      await execSql(`
-        INSERT INTO subscribers (id, name, email, password, phone, plan, status, started_at, expires_at, total_paid, is_lifetime_exempt, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        newSub.id,
-        newSub.name,
-        newSub.email,
-        String(password),
-        newSub.phone,
-        newSub.plan,
-        newSub.status,
-        newSub.startedAt,
-        newSub.expiresAt,
-        newSub.totalPaid,
-        newSub.isLifetimeExemptFromMonitoring ? 1 : 0,
-        newSub.notes
-      ]).catch(e => console.error('[SQL INSERT ERROR]', e));
-
-      subscribersList.unshift(newSub);
-
-      adminNotificationsList.unshift({
-        id: `notif-${Date.now()}`,
-        type: 'NEW_SUBSCRIBER',
-        subscriberName: newSub.name,
-        subscriberEmail: newSub.email,
-        message: `✨ NOVO USUÁRIO CADASTRADO (${currentDbEngine}): ${newSub.name} criou uma conta via e-mail (${newSub.email})!`,
-        timestamp: 'Agora mesmo',
-        read: false,
-        badgeColor: 'bg-emerald-600'
-      });
-
-      savePersistentStore();
-      console.log(`[REAL AUTH SQL] Novo usuário cadastrado no banco ${currentDbEngine}: ${cleanEmail}`);
-
-      res.json({
-        success: true,
-        message: `Cadastro realizado com sucesso no banco de dados (${currentDbEngine})!`,
-        user: {
-          name: newSub.name,
-          email: newSub.email,
-          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
-          subscriber: newSub
-        }
-      });
-    } catch (err: any) {
-      console.error('[REAL AUTH REGISTER ERROR]', err);
-      res.status(500).json({ error: 'Erro ao processar cadastro no banco de dados.' });
-    }
-  });
-
-  // Store for pending email / WhatsApp verification codes
-  const pendingAuthCodes: Record<string, { code: string; email: string; name?: string; password?: string; phone?: string; expiresAt: number }> = {};
-
-  // 1. Send Email / Phone Verification Code
-  app.post('/api/auth/send-verification', async (req, res) => {
-    try {
-      const { email, name, password, phone } = req.body;
-      const cleanEmail = String(email || '').trim().toLowerCase();
-      if (!cleanEmail || !cleanEmail.includes('@')) {
-        return res.status(400).json({ error: 'E-mail inválido para envio do código de verificação.' });
-      }
-
-      // Check if email already registered in DB
-      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
-      if (dbSubs.length > 0) {
-        return res.status(400).json({ error: 'Este e-mail já está cadastrado no sistema. Por favor, acesse a aba "Entrar" para fazer login.' });
-      }
-
-      // Generate 6-digit PIN code
-      const generatedCode = String(Math.floor(100000 + Math.random() * 900000));
-      pendingAuthCodes[cleanEmail] = {
-        code: generatedCode,
-        email: cleanEmail,
-        name: name || cleanEmail.split('@')[0],
-        password: password || '',
-        phone: phone || '',
-        expiresAt: Date.now() + 15 * 60 * 1000 // 15 min expiry
-      };
-
-      console.log(`[AUTH VERIFICATION CODE GENERATED] Code for ${cleanEmail}: ${generatedCode}`);
-
-      res.json({
-        success: true,
-        message: `Código de verificação de 6 dígitos enviado para ${cleanEmail}!`,
-        verificationCode: generatedCode
-      });
-    } catch (err: any) {
-      console.error('[SEND VERIFICATION CODE ERROR]', err);
-      res.status(500).json({ error: 'Erro ao gerar e enviar código de verificação.' });
-    }
-  });
-
-  // 2. Confirm Email Verification Code and Activate Account
-  app.post('/api/auth/verify-code', async (req, res) => {
-    try {
-      const { email, code, name, password, phone } = req.body;
-      const cleanEmail = String(email || '').trim().toLowerCase();
-      const cleanCode = String(code || '').trim();
-
-      const pending = pendingAuthCodes[cleanEmail];
-      if (!pending) {
-        return res.status(400).json({ error: 'Nenhum código de verificação pendente encontrado para este e-mail. Solicite um novo código.' });
-      }
-
-      if (pending.expiresAt < Date.now()) {
-        delete pendingAuthCodes[cleanEmail];
-        return res.status(400).json({ error: 'O código de verificação expirou. Solicite um novo código de ativação.' });
-      }
-
-      if (pending.code !== cleanCode) {
-        return res.status(400).json({ error: 'Código de verificação incorreto. Verifique o número digitado e tente novamente.' });
-      }
-
-      // Code matched! Create subscriber account in SQL database
-      const finalName = name || pending.name || cleanEmail.split('@')[0];
-      const finalPassword = password || pending.password || '123456';
-      const finalPhone = phone || pending.phone || '+55 (11) 99999-0000';
-      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
-
-      const clientIp = getClientIp(req);
-      const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
-      const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFp, cleanEmail);
-
-      userPasswordsMap[cleanEmail] = finalPassword;
-
-      const subId = `sub-${Date.now()}`;
-      let accountNotes = `Conta ativada e confirmada via código de verificação por e-mail (IP: ${clientIp}).`;
-
-      if (trialCheck.isExhausted && !isAdm) {
-        accountNotes += ` [VÍNCULO ANTI-STEALTH: Degustação já utilizada no IP/Dispositivo]`;
-        await recordTrialClaimed(clientIp, deviceFp, cleanEmail, subId);
-      }
-
-      const newSub: Subscriber = {
-        id: subId,
-        name: finalName,
-        email: cleanEmail,
-        phone: finalPhone,
-        plan: 'MENSAL',
-        status: isAdm ? 'ATIVO' : (trialCheck.isExhausted ? 'PENDENTE' : 'ATIVO'),
-        startedAt: new Date().toISOString().split('T')[0],
-        expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
-        totalPaid: isAdm ? 0 : 29.90,
-        discountApplied: 0,
-        isLifetimeExemptFromMonitoring: isAdm,
-        notes: accountNotes
-      };
-
-      await execSql(`
-        INSERT INTO subscribers (id, name, email, password, phone, plan, status, started_at, expires_at, total_paid, is_lifetime_exempt, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        newSub.id,
-        newSub.name,
-        newSub.email,
-        finalPassword,
-        newSub.phone,
-        newSub.plan,
-        newSub.status,
-        newSub.startedAt,
-        newSub.expiresAt,
-        newSub.totalPaid,
-        newSub.isLifetimeExemptFromMonitoring ? 1 : 0,
-        newSub.notes
-      ]).catch(e => console.error('[SQL REGISTER INSERT ERROR]', e));
-
-      subscribersList.unshift(newSub);
-      delete pendingAuthCodes[cleanEmail];
-      savePersistentStore();
-
-      // Trigger Webhook Event: user.registered
-      dispatchWebhooksForEvent('user.registered', {
-        user: {
-          id: newSub.id,
-          name: newSub.name,
-          email: newSub.email,
-          phone: newSub.phone,
-          status: newSub.status
-        },
-        event: 'user.registered'
-      });
-
-      res.json({
-        success: true,
-        message: 'Conta ativada com sucesso!',
-        user: {
-          name: newSub.name,
-          email: newSub.email,
-          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
-          subscriber: newSub
-        }
-      });
-    } catch (err: any) {
-      console.error('[VERIFY CODE ERROR]', err);
-      res.status(500).json({ error: 'Erro ao verificar código e ativar conta.' });
-    }
-  });
-
-  // 3. Social OAuth Authentication Endpoint (Google, Facebook, WhatsApp OTP)
-  app.post('/api/auth/social-login', async (req, res) => {
-    try {
-      const { provider, socialEmail, socialName, socialPhone, verifiedToken } = req.body;
-      if (!socialEmail || !provider) {
-        return res.status(400).json({ error: 'E-mail e provedor de autenticação são obrigatórios.' });
-      }
-
-      const cleanEmail = String(socialEmail).trim().toLowerCase();
-      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
-
-      const clientIp = getClientIp(req);
-      const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
-      const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFp, cleanEmail);
-
-      // Check if user already exists
-      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]);
-      let existingSub = dbSubs[0];
-
-      if (!existingSub) {
-        const subId = `sub-${provider.toLowerCase()}-${Date.now()}`;
-        if (trialCheck.isExhausted && !isAdm) {
-          await recordTrialClaimed(clientIp, deviceFp, cleanEmail, subId);
-        }
-
-        // Auto-create verified social account
-        const newSub: Subscriber = {
-          id: subId,
-          name: socialName || `Usuário ${provider}`,
-          email: cleanEmail,
-          phone: socialPhone || '+55 (11) 99999-8888',
-          plan: 'MENSAL',
-          status: isAdm ? 'ATIVO' : (trialCheck.isExhausted ? 'PENDENTE' : 'ATIVO'),
-          startedAt: new Date().toISOString().split('T')[0],
-          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          totalPaid: isAdm ? 0 : 29.90,
-          discountApplied: 0,
-          isLifetimeExemptFromMonitoring: isAdm,
-          notes: `Conta autenticada e verificada via ${provider} OAuth (${verifiedToken || 'Token Válido'})` + (trialCheck.isExhausted ? ' [VÍNCULO ANTI-STEALTH: Degustação já utilizada]' : '')
-        };
-
-        await execSql(`
-          INSERT INTO subscribers (id, name, email, password, phone, plan, status, started_at, expires_at, total_paid, is_lifetime_exempt, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          newSub.id,
-          newSub.name,
-          newSub.email,
-          'social_oauth_verified',
-          newSub.phone,
-          newSub.plan,
-          newSub.status,
-          newSub.startedAt,
-          newSub.expiresAt,
-          newSub.totalPaid,
-          newSub.isLifetimeExemptFromMonitoring ? 1 : 0,
-          newSub.notes
-        ]).catch(e => console.error('[SQL SOCIAL LOGIN INSERT ERROR]', e));
-
-        existingSub = newSub;
-        subscribersList.unshift(existingSub);
-        savePersistentStore();
-      }
-
-      // Trigger Webhook Event: user.login
-      dispatchWebhooksForEvent('user.login', {
-        user: {
-          name: existingSub.name,
-          email: existingSub.email,
-          role: isAdm ? 'ADMIN' : 'SUBSCRIBER'
-        },
-        provider,
-        event: 'user.login'
-      });
-
-      res.json({
-        success: true,
-        message: `Autenticado com sucesso via ${provider}!`,
-        user: {
-          name: existingSub.name,
-          email: existingSub.email,
-          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
-          subscriber: existingSub
-        }
-      });
-    } catch (err: any) {
-      console.error('[SOCIAL AUTH ERROR]', err);
-      res.status(500).json({ error: 'Erro no processo de autenticação social.' });
-    }
-  });
-
-  app.post('/api/auth/login', async (req, res) => {
-    try {
-      const { email, password } = req.body;
-      if (!email) {
-        return res.status(400).json({ error: 'Informe seu e-mail de acesso.' });
-      }
-
-      const cleanEmail = String(email).trim().toLowerCase();
-      const isAdm = cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br';
-
-      const clientIp = getClientIp(req);
-      const deviceFp = req.body.deviceFingerprint ? String(req.body.deviceFingerprint) : '';
-      const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFp, cleanEmail);
-
-      // Check SQL DB
-      const dbSubs = await querySql('SELECT * FROM subscribers WHERE LOWER(email) = ?', [cleanEmail]).catch(e => {
-        console.warn('[LOGIN DB FALLBACK]', e?.message);
-        return [];
-      });
-      let existingDbSub = dbSubs[0];
-      let existingSub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
-
-      // STRICT CHECK: Reject login if user does NOT exist in database!
-      if (!existingDbSub && !existingSub) {
-        return res.status(401).json({
-          error: 'Conta não encontrada. O e-mail informado não possui cadastro ativo. Clique na aba "Criar Conta" para se cadastrar.'
-        });
-      }
-
-      // Check password strictly
-      const storedPassword = existingDbSub?.password || userPasswordsMap[cleanEmail];
-      if (storedPassword && storedPassword !== 'social_login_oauth' && storedPassword !== 'social_oauth_verified') {
-        if (!password || (storedPassword !== password && userPasswordsMap[cleanEmail] !== password)) {
-          return res.status(401).json({
-            error: 'Senha incorreta. Verifique suas credenciais e tente novamente.'
-          });
-        }
-      }
-
-      if (existingDbSub && !existingSub) {
-        existingSub = {
-          id: existingDbSub.id,
-          name: existingDbSub.name,
-          email: existingDbSub.email,
-          phone: existingDbSub.phone || '+55 (11) 99999-0000',
-          plan: existingDbSub.plan || 'MENSAL',
-          status: existingDbSub.status || 'ATIVO',
-          startedAt: existingDbSub.started_at || new Date().toISOString().split('T')[0],
-          expiresAt: existingDbSub.expires_at || null,
-          totalPaid: Number(existingDbSub.total_paid) || 0,
-          discountApplied: 0,
-          isLifetimeExemptFromMonitoring: Boolean(existingDbSub.is_lifetime_exempt),
-          notes: existingDbSub.notes || ''
-        };
-        subscribersList.unshift(existingSub);
-      }
-
-      // Anti-stealth check for existing trial/pending status on login
-      if (existingSub && (existingSub.status === 'DEGUSTACAO' || existingSub.status === 'PENDENTE') && trialCheck.isExhausted && !isAdm) {
-        existingSub.status = 'EXPIRADO';
-        existingSub.notes = (existingSub.notes || '') + ' [SISTEMA ANTI-STEALTH: Degustação encerrada por vínculo de IP/Dispositivo]';
-        await execSql('UPDATE subscribers SET status = ? WHERE id = ?', ['EXPIRADO', existingSub.id]).catch(() => {});
-        await recordTrialClaimed(clientIp, deviceFp, cleanEmail, existingSub.id);
-        savePersistentStore();
-      }
-
-      // Trigger Webhook Event: user.login
-      dispatchWebhooksForEvent('user.login', {
-        user: {
-          name: existingSub ? existingSub.name : cleanEmail.split('@')[0],
-          email: cleanEmail,
-          role: isAdm ? 'ADMIN' : 'SUBSCRIBER'
-        },
-        provider: 'EMAIL_PASSWORD',
-        event: 'user.login'
-      });
-
-      res.json({
-        success: true,
-        message: 'Login realizado com sucesso!',
-        user: {
-          name: existingSub ? existingSub.name : cleanEmail.split('@')[0],
-          email: cleanEmail,
-          role: isAdm ? 'ADMIN' : 'SUBSCRIBER',
-          subscriber: existingSub
-        }
-      });
-    } catch (err: any) {
-      console.error('[REAL AUTH LOGIN ERROR]', err);
-      res.status(500).json({ error: 'Erro ao realizar login.' });
-    }
   });
 
   // 2. Mercado Livre & WhatsApp Affiliate Config
@@ -1142,18 +545,7 @@ async function startServer() {
   // 5. AI Copy Generator with Gemini 3.6 Flash
   app.post('/api/ai/generate-copy', async (req, res) => {
     try {
-      const { product, template, customInstruction, deviceFingerprint, userEmail, isTrialMode } = req.body;
-
-      if (isTrialMode) {
-        const clientIp = getClientIp(req);
-        const trialCheck = await isTrialExhaustedCrossCheck(clientIp, deviceFingerprint, userEmail);
-        if (trialCheck.isExhausted) {
-          return res.status(403).json({
-            error: 'TRIAL_EXHAUSTED',
-            message: trialCheck.reason || 'Sua degustação gratuita de 30 minutos já foi encerrada para este dispositivo. Escolha um plano para liberar o robô de postagens.'
-          });
-        }
-      }
+      const { product, template, customInstruction } = req.body;
 
       if (!product) {
         return res.status(400).json({ error: 'Produto é obrigatório para gerar a copy' });
@@ -1191,31 +583,9 @@ async function startServer() {
         return res.json({ copy: fallbackObj.copy, niche: detectedNiche, isAiGenerated: false });
       }
 
-      const langInstruction = bv?.language === 'EN'
-        ? 'IDIOMA OBRIGATÓRIO: Escreva o texto inteiramente em INGLÊS (English).'
-        : (bv?.language === 'ES'
-          ? 'IDIOMA OBRIGATÓRIO: Escreva o texto inteiramente em ESPANHOL (Español).'
-          : 'IDIOMA OBRIGATÓRIO: Escreva em PORTUGUÊS (Brasil).');
-
-      const regionalInstruction = bv?.regionalStyle && bv.regionalStyle !== 'NENHUM'
-        ? `- SOTAQUE / ESTILO REGIONAL BRASILEIRO OBRIGATÓRIO: ${bv.regionalStyle} (${
-            bv.regionalStyle === 'NORDESTINO' ? 'Use expressões e o sotaque acolhedor e empolgado do Nordeste, como "Oxente", "Eita guri", "Pense num desconto arretado!", "Vixe Maria, que promoção!", "Aproveita que tá bom demais!"' :
-            bv.regionalStyle === 'PAULISTANO' ? 'Use expressões do cotidiano paulistano com entusiasmo urbano, como "Mano do céu, que achado meeeu!", "Se liga nesse preço no precinho!", "Sem maldade, tá barato demais!"' :
-            bv.regionalStyle === 'MINEIRO' ? 'Use o carisma e acolhimento mineiro com gírias típicas, como "Nuuua, ô trem bão demais da conta!", "Uai, olha esse preço!", "É bão demais da conta!"' :
-            bv.regionalStyle === 'CARIOCA' ? 'Use a descontração do Rio de Janeiro, como "Coisa linda de prima!", "Nossa senhora, tá de graça, parceiro!", "Garanti o meu de primeira!"' :
-            bv.regionalStyle === 'GAUCHO' ? 'Use o sotaque e bordões gaúchos/sulinos, como "Bah tchê, que barbaridade de promoção!", "Tri legal!", "Garantia bagual no precinho!"' :
-            bv.regionalStyle === 'FORMAL_CORPORATIVO' ? 'Adote tom extremamente executivo, formal e sofisticado, sem gírias.' :
-            bv.regionalStyle === 'DESCONTRAIDO_JOVEM' ? 'Adote linguagem jovem da Geração Z/TikTok, com gírias atuais e tom dinâmico.' :
-            bv.regionalStyle === 'PROMOCIONAL_AGRESSIVO' ? 'Adote tom de locutor de supermercado / Black Friday em alta intensidade.' :
-            'Humor de meme e frases engraçadas no estilo tio do WhatsApp.'
-          })`
-        : '';
-
       const brandVoiceContext = bv ? `
 ---
 DIRETRIZES OBRIGATÓRIAS DE VOZ E IDENTIDADE DA MARCA DO CLIENTE (${bv.brandName || 'IMPORTHOURANDO'}):
-- ${langInstruction}
-${regionalInstruction}
 - Tom de Voz Obrigatório: ${bv.toneStyle} (${bv.toneStyle === 'FORMAL' ? 'Tom respeitoso, corporativo e elegante' : bv.toneStyle === 'SALES' ? 'Foco em vendas agressivas, urgência e gatilhos de escassez' : bv.toneStyle === 'HUMOROUS' ? 'Tom descontraído, leve e divertido com piada leve' : 'Tom empolgado, entusiasta e de oportunidade viral'})
 - Saudação / Abertura Obrigatória: "${bv.greetingGreeting}"
 - Instruções de Voz Específicas da Marca: "${bv.customPromptInstructions}"
@@ -1223,7 +593,7 @@ ${regionalInstruction}
 - Assinatura Obrigatória no Final do Texto: "${bv.brandSignatureText}"
 - Frase de Chamada para Ação (CTA): "${bv.customCtaPhrase}"
 ---
-Siga rigorosamente estas diretrizes de voz, idioma e sotaque regional da marca (${bv.brandName}) ao gerar o texto.
+Siga rigorosamente estas diretrizes de voz e postura da marca (${bv.brandName}) ao gerar o texto.
 ` : '';
 
       const prompt = `Você é o maior especialista do Brasil em copywriting VIRAL E EMPOLGANTE para WhatsApp, focado em alta conversão e engajamento.
@@ -1271,16 +641,6 @@ Diretrizes Obrigatórias de Formatação Viral:
       });
 
       const copyText = response.text || '';
-
-      // Trigger Webhook Event: copy.generated
-      dispatchWebhooksForEvent('copy.generated', {
-        productTitle: prod.title,
-        productPrice: prod.price,
-        copy: copyText,
-        niche: detectedNiche.name,
-        event: 'copy.generated'
-      });
-
       res.json({ copy: copyText, niche: detectedNiche, isAiGenerated: true });
     } catch (err: any) {
       console.error('Error generating AI copy:', err);
@@ -2127,62 +1487,22 @@ Diretrizes Obrigatórias de Formatação Viral:
 
   // --- VITE / STATIC SERVING ---
 
-  const isProduction =
-    process.env.NODE_ENV === 'production' ||
-    currentFilename.endsWith('.cjs') ||
-    currentFilename.includes('dist');
-
-  if (!isProduction) {
-    try {
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
-    } catch (e) {
-      console.warn('[Vite Server Init Fallback] Fallback to static serving due to:', e);
-      serveStaticFiles(app);
-    }
-  } else {
-    serveStaticFiles(app);
-  }
-
-  if (typeof PORT === 'string') {
-    app.listen(PORT, () => {
-      console.log(`Server MeliOfertas running on socket/pipe: ${PORT}`);
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
     });
+    app.use(vite.middlewares);
   } else {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server MeliOfertas running on http://0.0.0.0:${PORT}`);
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
-}
 
-function serveStaticFiles(app: express.Express) {
-  let distPath = path.join(process.cwd(), 'dist');
-  if (!fs.existsSync(path.join(distPath, 'index.html'))) {
-    if (fs.existsSync(path.join(__dirname, 'dist', 'index.html'))) {
-      distPath = path.join(__dirname, 'dist');
-    } else if (fs.existsSync(path.join(process.cwd(), 'index.html'))) {
-      distPath = process.cwd();
-    } else if (fs.existsSync(path.join(__dirname, 'index.html'))) {
-      distPath = __dirname;
-    }
-  }
-
-  console.log(`[Production] Serving static files from: ${distPath}`);
-  app.use(express.static(distPath, { index: false }));
-  app.get('*', (req, res) => {
-    if (req.path.startsWith('/api/')) {
-      return res.status(404).json({ error: `Rota de API '${req.path}' não encontrada.` });
-    }
-    const indexPath = path.join(distPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-      res.sendFile(indexPath);
-    } else {
-      res.status(404).send('<h1>Aviso do Servidor: Arquivos estáticos (index.html) não encontrados.</h1><p>Por favor execute <code>npm run build</code> para gerar a pasta dist.</p>');
-    }
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server MeliOfertas running on http://0.0.0.0:${PORT}`);
   });
 }
 
