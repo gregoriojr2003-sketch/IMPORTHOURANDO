@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCHED_LOGS, INITIAL_SCHEDULER_CONFIG, INITIAL_AFFILIATE_CONFIG, INITIAL_SUBSCRIBERS, INITIAL_ADMIN_NOTIFICATIONS } from './src/data/initialData.ts';
@@ -44,48 +43,6 @@ let mlMonitorConfig = {
 };
 let processedMlOfferIds: Set<string> = new Set();
 
-// Persistent Disk Store File Setup
-const STORE_FILE = path.join(process.cwd(), 'data_store.json');
-
-function loadPersistentStore() {
-  try {
-    if (fs.existsSync(STORE_FILE)) {
-      const raw = fs.readFileSync(STORE_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      if (data.affiliateConfig) affiliateConfig = { ...INITIAL_AFFILIATE_CONFIG, ...data.affiliateConfig };
-      if (data.schedulerConfig) schedulerConfig = { ...INITIAL_SCHEDULER_CONFIG, ...data.schedulerConfig };
-      if (data.mlMonitorConfig) mlMonitorConfig = { ...mlMonitorConfig, ...data.mlMonitorConfig };
-      if (data.subscribersList && Array.isArray(data.subscribersList) && data.subscribersList.length > 0) subscribersList = data.subscribersList;
-      if (data.channelsList && Array.isArray(data.channelsList) && data.channelsList.length > 0) channelsList = data.channelsList;
-      if (data.templatesList && Array.isArray(data.templatesList) && data.templatesList.length > 0) templatesList = data.templatesList;
-      if (data.adminPaymentConfig) adminPaymentConfig = data.adminPaymentConfig;
-      console.log('[PERSISTENCE] Data store loaded successfully from data_store.json');
-    }
-  } catch (err) {
-    console.error('[PERSISTENCE] Error loading data store:', err);
-  }
-}
-
-function savePersistentStore() {
-  try {
-    const data = {
-      affiliateConfig,
-      schedulerConfig,
-      mlMonitorConfig,
-      subscribersList,
-      channelsList,
-      templatesList,
-      adminPaymentConfig
-    };
-    fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[PERSISTENCE] Error saving data store:', err);
-  }
-}
-
-// Load data immediately on server start
-loadPersistentStore();
-
 // Initialize Gemini Client
 const apiKey = process.env.GEMINI_API_KEY || '';
 const ai = apiKey
@@ -103,35 +60,57 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-  // --- SECURITY & CORS HEADERS MIDDLEWARE ---
+  // --- SECURITY HEADERS MIDDLEWARE ---
   app.use((req, res, next) => {
-    // Dynamic CORS origin handling (Wildcard + Allow-Credentials causes browser fetch network errors)
-    const reqOrigin = req.headers.origin;
-    if (reqOrigin) {
-      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Cache-Control, Origin');
-
-    // Content Security Policy permitting frame embedding in AI Studio and external previews
+    // 1. Content Security Policy (CSP)
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self' https: http: data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https:; img-src 'self' data: blob: https: http:; font-src 'self' data: https://fonts.gstatic.com https:; connect-src 'self' https: http: ws: wss:; frame-ancestors *; object-src 'none'; base-uri 'self';"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https: http:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https: http: ws: wss:; frame-ancestors 'self' https: http:;"
     );
 
-    // Prevent MIME-Type Sniffing
+    // 2. Strict Transport Security (HSTS)
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+
+    // 3. Anti-Clickjacking (X-Frame-Options & frame-ancestors)
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+
+    // 4. Prevent MIME-Type Sniffing (X-Content-Type-Options)
     res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    // 5. Referrer Policy
     res.setHeader('Referrer-Policy', 'no-referrer-when-downgrade');
+
+    // 6. Permissions Policy
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
-    // Handle Preflight OPTIONS Request immediately
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
+    // 7. XSS Protection
+    res.setHeader('X-XSS-Protection', '1; mode=block');
 
+    next();
+  });
+
+  // --- SECURE COOKIES MIDDLEWARE ---
+  // Guarantees all cookies (including GAESA, session, custom cookies) get Secure, HttpOnly, SameSite=Lax
+  app.use((req, res, next) => {
+    const originalSetHeader = res.setHeader;
+    res.setHeader = function (name: string, value: any) {
+      if (typeof name === 'string' && name.toLowerCase() === 'set-cookie') {
+        if (Array.isArray(value)) {
+          value = value.map(cookieStr => {
+            let updated = String(cookieStr);
+            if (!/;\s*Secure/i.test(updated)) updated += '; Secure';
+            if (!/;\s*HttpOnly/i.test(updated)) updated += '; HttpOnly';
+            if (!/;\s*SameSite/i.test(updated)) updated += '; SameSite=Lax';
+            return updated;
+          });
+        } else if (typeof value === 'string') {
+          if (!/;\s*Secure/i.test(value)) value += '; Secure';
+          if (!/;\s*HttpOnly/i.test(value)) value += '; HttpOnly';
+          if (!/;\s*SameSite/i.test(value)) value += '; SameSite=Lax';
+        }
+      }
+      return originalSetHeader.call(this, name, value);
+    };
     next();
   });
 
@@ -151,19 +130,11 @@ async function startServer() {
 
   app.post('/api/config', (req, res) => {
     if (req.body.affiliateConfig) {
-      affiliateConfig = {
-        ...affiliateConfig,
-        ...req.body.affiliateConfig,
-        marketplaceAccounts: {
-          ...affiliateConfig.marketplaceAccounts,
-          ...req.body.affiliateConfig.marketplaceAccounts
-        }
-      };
+      affiliateConfig = { ...affiliateConfig, ...req.body.affiliateConfig };
     }
     if (req.body.schedulerConfig) {
       schedulerConfig = { ...schedulerConfig, ...req.body.schedulerConfig };
     }
-    savePersistentStore();
     res.json({ success: true, affiliateConfig, schedulerConfig });
   });
 
@@ -177,7 +148,6 @@ async function startServer() {
     affiliateConfig.mlAppId = appId;
     affiliateConfig.mlSecretKey = secretKey;
     affiliateConfig.affiliateTag = tag;
-    savePersistentStore();
     res.json({
       success: true,
       message: 'Conexão com Mercado Livre API estabelecida com sucesso! Tag de rastreio ' + tag + ' validada.',
@@ -193,7 +163,6 @@ async function startServer() {
     affiliateConfig.whatsappApiType = apiType || 'EVOLUTION_API';
     affiliateConfig.whatsappToken = token || 'tok_test';
     affiliateConfig.whatsappInstance = instance || 'inst_test';
-    savePersistentStore();
     res.json({
       success: true,
       message: `Conexão via ${apiType || 'Evolution API'} testada com sucesso! Instância '${instance || 'ativa'}' online.`,
@@ -571,13 +540,11 @@ Diretrizes Obrigatórias de Formatação Viral:
     };
 
     channelsList.push(newChan);
-    savePersistentStore();
     res.json({ success: true, channel: newChan });
   });
 
   app.delete('/api/whatsapp/channels/:id', (req, res) => {
     channelsList = channelsList.filter(c => c.id !== req.params.id);
-    savePersistentStore();
     res.json({ success: true });
   });
 
@@ -911,7 +878,6 @@ Diretrizes Obrigatórias de Formatação Viral:
       if (typeof minDiscount === 'number') mlMonitorConfig.minDiscount = minDiscount;
       if (typeof checkIntervalSeconds === 'number') mlMonitorConfig.checkIntervalSeconds = checkIntervalSeconds;
 
-      savePersistentStore();
       res.json({
         success: true,
         message: 'Configuração do Monitor Mercado Livre atualizada com sucesso!',
@@ -957,7 +923,6 @@ Diretrizes Obrigatórias de Formatação Viral:
 
       console.log(`[PAYMENT CONFIG ADM] Meios de pagamento atualizados: PIX ${adminPaymentConfig.pixKey}, MP: ${adminPaymentConfig.mercadoPagoCheckoutUrl}`);
 
-      savePersistentStore();
       res.json({
         success: true,
         message: 'Meios de pagamento PIX e Mercado Pago atualizados com sucesso!',
@@ -1044,7 +1009,6 @@ Diretrizes Obrigatórias de Formatação Viral:
 
         console.log(`[SUBSCRIBER CONVERSION ADM] Assinante ${existing.email} convertido: Plano ${oldPlan} -> ${existing.plan}, Status ${oldStatus} -> ${existing.status}`);
 
-        savePersistentStore();
         res.json({ success: true, subscriber: existing, message: 'Perfil e status do assinante convertidos com sucesso!' });
       } else {
         const newSub: Subscriber = {
@@ -1075,7 +1039,6 @@ Diretrizes Obrigatórias de Formatação Viral:
           badgeColor: 'bg-emerald-600'
         });
 
-        savePersistentStore();
         res.json({ success: true, subscriber: newSub, message: 'Assinante cadastrado com sucesso!' });
       }
     } catch (err: any) {

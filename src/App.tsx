@@ -31,14 +31,7 @@ export default function App() {
   const [templates, setTemplates] = useState<OfferPostTemplate[]>(INITIAL_TEMPLATES);
   const [dispatchedLogs, setDispatchedLogs] = useState<DispatchedOffer[]>(INITIAL_DISPATCHED_LOGS);
   const [schedulerConfig, setSchedulerConfig] = useState<AutoSchedulerConfig>(INITIAL_SCHEDULER_CONFIG);
-  const [affiliateConfig, setAffiliateConfig] = useState<AffiliateConfig>(() => {
-    try {
-      const saved = localStorage.getItem('importhourando_affiliate_config');
-      return saved ? JSON.parse(saved) : INITIAL_AFFILIATE_CONFIG;
-    } catch (e) {
-      return INITIAL_AFFILIATE_CONFIG;
-    }
-  });
+  const [affiliateConfig, setAffiliateConfig] = useState<AffiliateConfig>(INITIAL_AFFILIATE_CONFIG);
 
   // Subscribers State
   const [subscribers, setSubscribers] = useState<Subscriber[]>(INITIAL_SUBSCRIBERS);
@@ -47,7 +40,7 @@ export default function App() {
   // Mandatory Initial Screen Authentication Session State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('importhourando_auth') === 'true' || sessionStorage.getItem('importhourando_auth') === 'true';
+      return sessionStorage.getItem('importhourando_auth') === 'true';
     } catch (e) {
       return false;
     }
@@ -60,7 +53,7 @@ export default function App() {
     subscriber?: Subscriber;
   } | null>(() => {
     try {
-      const saved = localStorage.getItem('importhourando_user') || sessionStorage.getItem('importhourando_user');
+      const saved = sessionStorage.getItem('importhourando_user');
       return saved ? JSON.parse(saved) : null;
     } catch (e) {
       return null;
@@ -74,16 +67,6 @@ export default function App() {
   const [currentSubscriber, setCurrentSubscriber] = useState<Subscriber>(() => {
     return currentUser?.subscriber || INITIAL_SUBSCRIBERS[0];
   });
-
-  useEffect(() => {
-    if (currentUser && currentSubscriber) {
-      const updatedUser = { ...currentUser, subscriber: currentSubscriber };
-      try {
-        localStorage.setItem('importhourando_user', JSON.stringify(updatedUser));
-        sessionStorage.setItem('importhourando_user', JSON.stringify(updatedUser));
-      } catch (e) {}
-    }
-  }, [currentSubscriber]);
 
   // Modals state
   const [priceAlerts, setPriceAlerts] = useState<PriceAlertRule[]>(INITIAL_PRICE_ALERTS);
@@ -130,41 +113,9 @@ export default function App() {
     setIsDarkMode(prev => !prev);
   };
 
-  // 30-Minute Trial Timer State
-  const [trialSecondsLeft, setTrialSecondsLeft] = useState<number | undefined>(() => {
-    if (currentSubscriber?.status === 'DEGUSTACAO') {
-      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
-      return Math.max(0, Math.floor((exp - Date.now()) / 1000));
-    }
-    return undefined;
-  });
-
-  useEffect(() => {
-    if (currentSubscriber?.status !== 'DEGUSTACAO') {
-      setTrialSecondsLeft(undefined);
-      return;
-    }
-
-    const timer = setInterval(() => {
-      const exp = currentSubscriber.expiresAt ? new Date(currentSubscriber.expiresAt).getTime() : Date.now() + 30 * 60 * 1000;
-      const left = Math.max(0, Math.floor((exp - Date.now()) / 1000));
-      setTrialSecondsLeft(left);
-
-      if (left <= 0) {
-        setCurrentSubscriber(prev => ({ ...prev, status: 'EXPIRADO' }));
-        setPaywallActionName('Sua degustação grátis de 30 minutos expirou! Escolha um dos nossos planos para continuar disparando ofertas com o robô.');
-        setIsSubscriptionPaywallOpen(true);
-        clearInterval(timer);
-      }
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [currentSubscriber?.status, currentSubscriber?.expiresAt]);
-
   const ensureActiveSubscription = (actionName = 'colocar o robô para funcionar'): boolean => {
     if (userRole === 'ADMIN') return true;
     if (currentSubscriber && currentSubscriber.status === 'ATIVO') return true;
-    if (currentSubscriber && currentSubscriber.status === 'DEGUSTACAO' && (trialSecondsLeft === undefined || trialSecondsLeft > 0)) return true;
 
     setPaywallActionName(actionName);
     setIsSubscriptionPaywallOpen(true);
@@ -206,28 +157,7 @@ export default function App() {
         fetch('/api/ml/monitor').then(r => r.json()).catch(() => null)
       ]);
 
-      if (resConfig?.affiliateConfig) {
-        const savedStr = localStorage.getItem('importhourando_affiliate_config');
-        const savedLocal = savedStr ? JSON.parse(savedStr) : null;
-
-        const mergedAccounts = {
-          ...INITIAL_AFFILIATE_CONFIG.marketplaceAccounts,
-          ...resConfig.affiliateConfig.marketplaceAccounts,
-          ...savedLocal?.marketplaceAccounts
-        };
-
-        const mergedAffiliate: AffiliateConfig = {
-          ...INITIAL_AFFILIATE_CONFIG,
-          ...resConfig.affiliateConfig,
-          ...savedLocal,
-          marketplaceAccounts: mergedAccounts
-        };
-
-        setAffiliateConfig(mergedAffiliate);
-        try {
-          localStorage.setItem('importhourando_affiliate_config', JSON.stringify(mergedAffiliate));
-        } catch (e) {}
-      }
+      if (resConfig?.affiliateConfig) setAffiliateConfig(resConfig.affiliateConfig);
       if (resConfig?.schedulerConfig) setSchedulerConfig(resConfig.schedulerConfig);
       if (resMlMon?.config) setMlMonitorConfig(resMlMon.config);
       if (resProds?.products) setProducts(resProds.products);
@@ -237,14 +167,8 @@ export default function App() {
       if (resSubs?.subscribers) {
         setSubscribers(resSubs.subscribers);
         if (resSubs.notifications) setAdminNotifications(resSubs.notifications);
-        const savedUserStr = localStorage.getItem('importhourando_user') || sessionStorage.getItem('importhourando_user');
-        const activeEmail = currentUser?.email || (savedUserStr ? JSON.parse(savedUserStr)?.email : null);
-        if (activeEmail) {
-          const matched = resSubs.subscribers.find((s: Subscriber) => s.email.toLowerCase() === activeEmail.toLowerCase());
-          if (matched) {
-            setCurrentSubscriber(matched);
-          }
-        }
+        const loggedUser = resSubs.subscribers.find((s: Subscriber) => s.email === 'gregoriojr2003@gmail.com') || resSubs.subscribers[0];
+        if (loggedUser) setCurrentSubscriber(loggedUser);
       }
     } catch (e) {
       console.log('Using default mock state');
@@ -286,26 +210,9 @@ export default function App() {
 
   const handleSaveConfig = async (updatedAffiliate?: Partial<AffiliateConfig>, updatedScheduler?: Partial<AutoSchedulerConfig>) => {
     if (!ensureActiveSubscription('salvar e alterar configurações de automação')) return;
-    
-    let mergedAffiliate = affiliateConfig;
-    if (updatedAffiliate) {
-      mergedAffiliate = {
-        ...affiliateConfig,
-        ...updatedAffiliate,
-        marketplaceAccounts: {
-          ...affiliateConfig.marketplaceAccounts,
-          ...updatedAffiliate.marketplaceAccounts
-        }
-      };
-      setAffiliateConfig(mergedAffiliate);
-      try {
-        localStorage.setItem('importhourando_affiliate_config', JSON.stringify(mergedAffiliate));
-      } catch (e) {}
-    }
-
     try {
       const payload: any = {};
-      if (updatedAffiliate) payload.affiliateConfig = mergedAffiliate;
+      if (updatedAffiliate) payload.affiliateConfig = updatedAffiliate;
       if (updatedScheduler) payload.schedulerConfig = updatedScheduler;
 
       const res = await fetch('/api/config', {
@@ -314,27 +221,10 @@ export default function App() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (data.affiliateConfig) {
-        const finalAff = {
-          ...data.affiliateConfig,
-          marketplaceAccounts: {
-            ...mergedAffiliate.marketplaceAccounts,
-            ...data.affiliateConfig.marketplaceAccounts
-          }
-        };
-        setAffiliateConfig(finalAff);
-        try {
-          localStorage.setItem('importhourando_affiliate_config', JSON.stringify(finalAff));
-        } catch (e) {}
-      }
+      if (data.affiliateConfig) setAffiliateConfig(data.affiliateConfig);
       if (data.schedulerConfig) setSchedulerConfig(data.schedulerConfig);
     } catch (e) {
-      if (updatedAffiliate) {
-        setAffiliateConfig(mergedAffiliate);
-        try {
-          localStorage.setItem('importhourando_affiliate_config', JSON.stringify(mergedAffiliate));
-        } catch (e) {}
-      }
+      if (updatedAffiliate) setAffiliateConfig({ ...affiliateConfig, ...updatedAffiliate });
       if (updatedScheduler) setSchedulerConfig({ ...schedulerConfig, ...updatedScheduler });
     }
   };
@@ -509,8 +399,6 @@ export default function App() {
     setIsLoginModalOpen(false);
 
     try {
-      localStorage.setItem('importhourando_auth', 'true');
-      localStorage.setItem('importhourando_user', JSON.stringify(userObj));
       sessionStorage.setItem('importhourando_auth', 'true');
       sessionStorage.setItem('importhourando_user', JSON.stringify(userObj));
     } catch (e) {
@@ -522,8 +410,6 @@ export default function App() {
     setIsAuthenticated(false);
     setCurrentUser(null);
     try {
-      localStorage.removeItem('importhourando_auth');
-      localStorage.removeItem('importhourando_user');
       sessionStorage.removeItem('importhourando_auth');
       sessionStorage.removeItem('importhourando_user');
     } catch (e) {
@@ -586,8 +472,6 @@ export default function App() {
         onOpenPriceAlerts={() => setIsPriceAlertsOpen(true)}
         isDarkMode={isDarkMode}
         onToggleDarkMode={handleToggleDarkMode}
-        trialSecondsLeft={trialSecondsLeft}
-        onOpenPaywall={() => setIsSubscriptionPaywallOpen(true)}
       />
 
       {/* Global Client Mode Tour Banner / Subscription Status */}
@@ -766,7 +650,11 @@ export default function App() {
         onClose={() => setIsLoginModalOpen(false)}
         subscribers={subscribers}
         onLoginSuccess={(user) => {
-          handleLoginSuccess(user);
+          setUserRole(user.role);
+          setCurrentUser(user);
+          if (user.subscriber) {
+            setCurrentSubscriber(user.subscriber);
+          }
           if (user.role === 'SUBSCRIBER' && activeTab === 'subscribers') {
             setActiveTab('subscribers');
           }

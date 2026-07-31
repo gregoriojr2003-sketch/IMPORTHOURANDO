@@ -8,19 +8,7 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
-      },
-    },
-    build: {
-      target: 'es2020',
-      outDir: 'dist',
-      sourcemap: false,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'lucide-react', 'motion'],
-          },
-        },
+        '@': path.resolve(__dirname, '.'),
       },
     },
     server: {

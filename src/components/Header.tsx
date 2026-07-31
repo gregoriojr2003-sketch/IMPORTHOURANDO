@@ -2,7 +2,6 @@ import React from 'react';
 import { ShoppingBag, Send, Cpu, Settings, ShieldCheck, Zap, Plus, RefreshCw, Users, Crown, Bell, HelpCircle, LogOut, User, Sun, Moon } from 'lucide-react';
 import { AffiliateConfig, AutoSchedulerConfig, Subscriber } from '../types';
 import { AppLogo } from './AppLogo';
-import { SyncStatusIndicator } from './SyncStatusIndicator';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'products' | 'channels' | 'templates' | 'logs' | 'subscribers';
@@ -27,8 +26,6 @@ interface HeaderProps {
   onOpenPriceAlerts?: () => void;
   isDarkMode?: boolean;
   onToggleDarkMode?: () => void;
-  trialSecondsLeft?: number;
-  onOpenPaywall?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -53,9 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onOpenPriceAlerts,
   isDarkMode = false,
-  onToggleDarkMode,
-  trialSecondsLeft,
-  onOpenPaywall
+  onToggleDarkMode
 }) => {
   const isRealAdmin = Boolean(
     isAdminAccount ||
@@ -64,13 +59,6 @@ export const Header: React.FC<HeaderProps> = ({
     currentUser?.email?.toLowerCase() === 'admin@importhourando.com.br' ||
     currentUser?.email?.toLowerCase() === 'admin'
   );
-
-  const formatSeconds = (sec: number) => {
-    if (sec <= 0) return '00:00';
-    const mins = Math.floor(sec / 60);
-    const secs = sec % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
 
   return (
     <header className="bg-[#2D3277] border-b border-[#3D438F] text-white sticky top-0 z-40 shadow-xl">
@@ -98,24 +86,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Status Indicators & Action Buttons */}
           <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
-            {/* 30-Minute Free Trial Countdown Banner (Se em modo de degustação) */}
-            {trialSecondsLeft !== undefined && (
-              <div className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500/30 to-amber-400/20 border-2 border-amber-400/80 px-3 py-1 rounded-xl text-xs font-black text-amber-200 shadow-md animate-pulse">
-                <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
-                <span>Degustação Grátis: <strong className="font-mono text-white text-sm ml-0.5">{formatSeconds(trialSecondsLeft)}</strong></span>
-                <button
-                  type="button"
-                  onClick={onOpenPaywall || onOpenPlanManager}
-                  className="ml-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black px-2 py-0.5 rounded-lg text-[10px] uppercase shadow-xs transition-all hover:scale-105"
-                >
-                  Assinar Plano
-                </button>
-              </div>
-            )}
-
-            {/* Indicador de Status de Sincronização em Tempo Real */}
-            <SyncStatusIndicator />
-
             {/* Primeiro Acesso / Guia Button */}
             <button
               onClick={onOpenGuide}

@@ -404,7 +404,7 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
                   Plano Mensal (30 Dias)
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-black text-slate-900">R$ 49,90<span className="text-xs text-slate-500 font-normal">/mês</span></div>
+                  <div className="text-3xl font-black text-slate-900">R$ 29,90</div>
                   <div className="text-xs text-slate-500 font-medium mt-1">Renovação simples sem fidelidade</div>
                 </div>
                 <ul className="text-xs text-slate-600 mt-4 space-y-2 font-medium">
@@ -419,17 +419,17 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
 
               <button
                 onClick={() => handleStartUpgrade('MENSAL', 0)}
-                className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow transition-all flex items-center justify-center gap-2"
               >
                 <Unlock className="w-4 h-4 text-emerald-400" />
-                {isSuspended ? 'Ativar Plano Mensal' : 'Manter Plano Mensal'}
+                {isSuspended ? 'Renovar Plano Mensal' : 'Manter Plano Mensal'}
               </button>
             </div>
 
             {/* Option 2: Semestral */}
             <div className="p-6 rounded-2xl border-2 border-blue-200 bg-blue-50/40 hover:border-blue-500 transition-all flex flex-col justify-between space-y-4 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 bg-blue-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider">
-                ECONOMIZE 17%
+                ECONOMIZE 18%
               </div>
               <div>
                 <div className="flex items-center gap-2 font-bold text-blue-900 text-base">
@@ -437,30 +437,30 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
                   Plano Semestral (6 Meses)
                 </div>
                 <div className="mt-3">
-                  <div className="text-xs text-slate-400 line-through">De R$ 299,40 (6x R$ 49,90)</div>
-                  <div className="text-3xl font-black text-blue-900">R$ 249,00</div>
-                  <div className="text-xs text-blue-700 font-bold mt-1">Apenas R$ 41,50 ao mês</div>
+                  <div className="text-xs text-slate-400 line-through">De R$ 179,40 (6x R$ 29,90)</div>
+                  <div className="text-3xl font-black text-blue-900">R$ 147,00</div>
+                  <div className="text-xs text-blue-700 font-bold mt-1">Apenas R$ 24,50 ao mês</div>
                 </div>
                 <ul className="text-xs text-slate-600 mt-4 space-y-2 font-medium">
                   <li className="flex items-center gap-2">
                     <Check className="w-4 h-4 text-blue-600 shrink-0" /> 6 meses de robô sem preocupação
                   </li>
                   <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-blue-600 shrink-0" /> Suporte prioritário via WhatsApp
+                    <Check className="w-4 h-4 text-blue-600 shrink-0" /> Suporte prioritário
                   </li>
                 </ul>
               </div>
 
               <button
                 onClick={() => handleStartUpgrade('SEMESTRAL', 0)}
-                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow transition-all flex items-center justify-center gap-2"
               >
                 <Zap className="w-4 h-4" />
-                Ativar Plano Semestral
+                Upgrade para Semestral
               </button>
             </div>
 
-            {/* Option 3: Anual (01 Ano) */}
+            {/* Option 3: Anual (Ultimate Offer) */}
             <div className="p-6 rounded-2xl border-2 border-amber-300 bg-amber-50/60 hover:border-amber-500 transition-all flex flex-col justify-between space-y-4 relative overflow-hidden shadow-md">
               <div className="absolute top-0 right-0 bg-amber-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider flex items-center gap-1">
                 <Crown className="w-3.5 h-3.5" /> MAIOR ECONOMIA
@@ -468,29 +468,29 @@ export const ClientSubscriptionView: React.FC<ClientSubscriptionViewProps> = ({
               <div>
                 <div className="flex items-center gap-2 font-bold text-amber-950 text-base">
                   <Crown className="w-5 h-5 text-amber-600" />
-                  Plano 01 Ano (12 Meses)
+                  Plano Anual (12 Meses)
                 </div>
                 <div className="mt-3">
-                  <div className="text-xs text-slate-400 line-through">De R$ 598,80 (12x R$ 49,90)</div>
-                  <div className="text-3xl font-black text-amber-900">R$ 449,00</div>
-                  <div className="text-xs text-amber-800 font-bold mt-1">Apenas R$ 37,41 por mês!</div>
+                  <div className="text-xs text-slate-400 line-through">De R$ 358,80 (12x R$ 29,90)</div>
+                  <div className="text-3xl font-black text-amber-900">R$ 247,00</div>
+                  <div className="text-xs text-amber-800 font-bold mt-1">Apenas R$ 20,58 por mês!</div>
                 </div>
                 <ul className="text-xs text-slate-700 mt-4 space-y-2 font-medium">
                   <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-amber-600 shrink-0" /> 12 meses de robô ativo 24h
+                    <Check className="w-4 h-4 text-amber-600 shrink-0" /> 12 meses completos de robô ativo
                   </li>
                   <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-amber-600 shrink-0" /> Monitor ML de Ofertas Bônus
+                    <Check className="w-4 h-4 text-amber-600 shrink-0" /> Proteção contra reajustes no ano
                   </li>
                 </ul>
               </div>
 
               <button
                 onClick={() => handleStartUpgrade('ANUAL', 0)}
-                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2"
               >
-                <Crown className="w-4 h-4 fill-current" />
-                Ativar Plano 01 Ano
+                <Crown className="w-4 h-4" />
+                Garantir Plano Anual
               </button>
             </div>
           </div>
