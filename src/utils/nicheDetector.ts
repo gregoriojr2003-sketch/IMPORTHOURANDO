@@ -1,3 +1,5 @@
+import { BrandVoiceRegionalStyle } from '../types';
+
 export interface OfferNiche {
   id: string;
   name: string;
@@ -324,6 +326,7 @@ export function buildViralNicheCopy(params: {
   customCtaPhrase?: string;
   brandSignatureText?: string;
   channelInviteLink?: string;
+  regionalStyle?: BrandVoiceRegionalStyle;
 }): { copy: string; niche: OfferNiche } {
   const niche = detectProductNiche(params.productTitle, params.category);
 
@@ -332,12 +335,38 @@ export function buildViralNicheCopy(params: {
   const formattedPrice = params.price.toFixed(2).replace('.', ',');
   const mpName = params.marketplaceName || 'Mercado Livre';
 
+  // Regional style prefixes & expressions
+  let regionalHookPrefix = '';
+  let regionalCta = params.customCtaPhrase || niche.ctaPhrase;
+  const style = params.regionalStyle || 'pt-BR-casual';
+
+  if (style === 'pt-BR-nordestino') {
+    regionalHookPrefix = '🌵 *OXENTE! VIXE MARIA, SE LIGA NESSA OFERTA ARRETADA!*';
+    regionalCta = '👉 Clica no link e aproveite antes que acabe, visse:';
+  } else if (style === 'pt-BR-paulistano') {
+    regionalHookPrefix = '🌇 *MANO DO CÉU! SE LIGA NESSE ACHADINHO TRABALHADO NO DESCONTO!*';
+    regionalCta = '👉 Se liga e garante o seu direto ao ponto:';
+  } else if (style === 'pt-BR-carioca') {
+    regionalHookPrefix = '🏖️ *CARACA, COISA LINDA! PEGA A VISÃO DESSA OFERTA BRABA!*';
+    regionalCta = '👉 Fechou? Clica aqui e garante o teu com desconto:';
+  } else if (style === 'pt-BR-formal') {
+    regionalHookPrefix = '💼 *INFORME DE OPORTUNIDADE E CONDIÇÕES ESPECIAIS*';
+    regionalCta = '👉 Acesse o link oficial para aquisição do item:';
+  } else if (style === 'en-US') {
+    regionalHookPrefix = '🔥 *HOT DEAL ALERT! UNBEATABLE SALE PRICE!*';
+    regionalCta = '👉 Buy yours here with instant discount:';
+  } else if (style === 'es-ES') {
+    regionalHookPrefix = '¡ALERTA DE OFERTA EXCLUSIVA! DESCUENTO ESPECIAL:';
+    regionalCta = '👉 Consigue la tuya aquí con descuento:';
+  } else {
+    regionalHookPrefix = '🔥 *OLHA ESSA OFERTA INCRÍVEL QUE ACHEI PRA VOCÊS!*';
+  }
+
   // Random viral hook from niche
   const randomHook = niche.viralHooks[Math.floor(Math.random() * niche.viralHooks.length)];
   const randomSlang = niche.slangAndTriggers[Math.floor(Math.random() * niche.slangAndTriggers.length)];
 
-  const greeting = params.greetingHeader || '🔥 *IMPORTHOURANDO - ALERTA DE ACHADINHOS VIRAL*';
-  const cta = params.customCtaPhrase || niche.ctaPhrase;
+  const greeting = params.greetingHeader || regionalHookPrefix;
   const signature = params.brandSignatureText ? `\n\n${params.brandSignatureText}` : '\n\n⚡ *IMPORTHOURANDO - Garantindo o menor preço para você!*';
 
   let copy = `${greeting}\n\n`;
@@ -345,12 +374,30 @@ export function buildViralNicheCopy(params: {
   copy += `${randomHook}\n\n`;
   copy += `📦 *${params.productTitle}* (${mpName})\n\n`;
 
-  if (params.originalPrice > params.price) {
-    copy += `❌ De R$ ${formattedOrigPrice}\n`;
-    copy += `✅ Por apenas: *R$ ${formattedPrice}* (${params.discountPercentage}% OFF!)\n`;
-    copy += `💸 *Você economiza direto: R$ ${discountAmount}!*\n`;
+  if (style === 'en-US') {
+    if (params.originalPrice > params.price) {
+      copy += `❌ Original Price: $${formattedOrigPrice}\n`;
+      copy += `✅ Sale Price: *$${formattedPrice}* (${params.discountPercentage}% OFF!)\n`;
+      copy += `💸 *Direct Savings: $${discountAmount}!*\n`;
+    } else {
+      copy += `✅ Sale Price: *$${formattedPrice}*\n`;
+    }
+  } else if (style === 'es-ES') {
+    if (params.originalPrice > params.price) {
+      copy += `❌ Precio Original: $${formattedOrigPrice}\n`;
+      copy += `✅ Oferta Especial: *$${formattedPrice}* (¡${params.discountPercentage}% OFF!)\n`;
+      copy += `💸 *Ahorras directo: $${discountAmount}!*\n`;
+    } else {
+      copy += `✅ Oferta Especial: *$${formattedPrice}*\n`;
+    }
   } else {
-    copy += `✅ Por apenas: *R$ ${formattedPrice}*\n`;
+    if (params.originalPrice > params.price) {
+      copy += `❌ De R$ ${formattedOrigPrice}\n`;
+      copy += `✅ Por apenas: *R$ ${formattedPrice}* (${params.discountPercentage}% OFF!)\n`;
+      copy += `💸 *Você economiza direto: R$ ${discountAmount}!*\n`;
+    } else {
+      copy += `✅ Por apenas: *R$ ${formattedPrice}*\n`;
+    }
   }
 
   if (params.installments) {
@@ -358,26 +405,24 @@ export function buildViralNicheCopy(params: {
   }
 
   if (params.shippingFree) {
-    copy += `🚚 *FRETE GRÁTIS para todo o Brasil*\n`;
+    copy += style === 'en-US' ? `🚚 *FREE Shipping available*\n` : style === 'es-ES' ? `🚚 *Envío Gratis disponible*\n` : `🚚 *FRETE GRÁTIS para todo o Brasil*\n`;
   }
 
   if (params.couponCode) {
-    copy += `🎟️ Cupom de Desconto: *${params.couponCode}* (Copie antes de finalizar!)\n`;
+    copy += `🎟️ Cupom de Desconto: *${params.couponCode}*\n`;
   }
 
   if (params.rating) {
-    copy += `⭐ Avaliação: ${params.rating} de 5 estrelas\n`;
+    copy += `⭐ Avaliação: ${params.rating} / 5.0\n`;
   }
 
-  copy += `\n🎯 *Por que vale a pena neste nicho?*\n`;
-  copy += `• ${randomSlang}\n`;
-  copy += `• Produto em estoque promocional com procedência verificada\n\n`;
+  copy += `\n🎯 *Destaque de Destaque:* ${randomSlang}\n\n`;
 
-  copy += `${cta}\n`;
+  copy += `${regionalCta}\n`;
   copy += `${params.affiliateUrl}`;
 
   if (params.channelInviteLink) {
-    copy += `\n\n📢 *Receba mais achadinhos virais desse nicho no Canal:* \n👉 ${params.channelInviteLink}`;
+    copy += `\n\n📢 *Canal de Ofertas do WhatsApp:* \n👉 ${params.channelInviteLink}`;
   }
 
   copy += `${signature}\n\n`;

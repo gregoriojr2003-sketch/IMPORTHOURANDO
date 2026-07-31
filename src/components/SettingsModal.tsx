@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info, Database, Download, Webhook, Radio, Plus, Trash2, Send, Play, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig, WebhookConfig } from '../types';
+import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig, WebhookConfig, BrandVoiceRegionalStyle } from '../types';
+import { WebhookSettings } from './WebhookSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -436,6 +437,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
+              {/* Estilo Regional e Dialeto */}
+              <div>
+                <label className="block font-bold text-slate-800 mb-1 flex items-center space-x-1.5">
+                  <Globe className="w-4 h-4 text-purple-600" />
+                  <span>Estilo de Linguagem / Regionalismo do Brasil</span>
+                </label>
+                <select
+                  value={brandVoice.regionalStyle || 'pt-BR-nordestino'}
+                  onChange={(e) => setBrandVoice({ ...brandVoice, regionalStyle: e.target.value as BrandVoiceRegionalStyle })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 font-bold focus:outline-none focus:border-purple-600"
+                >
+                  <option value="pt-BR-nordestino">🌵 Português - Regional Nordestino (expressões locais, tom acolhedor e caloroso)</option>
+                  <option value="pt-BR-paulistano">🏙️ Português - Regional Paulistano (tom direto, ágil, urbano)</option>
+                  <option value="pt-BR-carioca">🏖️ Português - Regional Carioca (tom descontraído, leve)</option>
+                  <option value="pt-BR-formal">💼 Português - Formal / Corporativo</option>
+                  <option value="pt-BR-casual">💬 Português - Casual / Informal</option>
+                  <option value="en-US">🇺🇸 Inglês (US)</option>
+                  <option value="es-ES">🇪🇸 Espanhol (ES)</option>
+                </select>
+              </div>
+
               {/* Nome da Marca & Saudação de Abertura */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>
@@ -620,235 +642,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {activeTab === 'WEBHOOKS' && (
-            <div className="space-y-5">
-              {/* Info Header */}
-              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex items-start space-x-3 text-blue-900">
-                <Webhook className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-                <div className="text-xs leading-relaxed">
-                  <h4 className="font-bold text-blue-900">Webhooks Personalizados & Notificações Externas</h4>
-                  <p className="text-blue-700 text-[11px] mt-0.5">
-                    Cadastre endpoints HTTP POST para integrar o robô com sistemas externos (n8n, Make, Zapier, Discord, Slack ou seu servidor próprio). Toda vez que uma oferta for disparada com sucesso, um payload JSON será enviado em tempo real.
-                  </p>
-                </div>
-              </div>
-
-              {/* Form to Add New Webhook */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3.5">
-                <h4 className="font-bold text-slate-800 flex items-center space-x-1.5 text-xs">
-                  <Plus className="w-4 h-4 text-blue-600" />
-                  <span>Cadastrar Novo Webhook / Endpoint</span>
-                </h4>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1 text-[11px]">Nome de Identificação</label>
-                    <input
-                      type="text"
-                      value={newWebhookName}
-                      onChange={(e) => setNewWebhookName(e.target.value)}
-                      placeholder="Ex: Servidor n8n - Notificação de Disparos"
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 text-xs font-medium focus:outline-none focus:border-blue-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1 text-[11px]">URL do Webhook (Endpoint HTTPS)</label>
-                    <input
-                      type="text"
-                      value={newWebhookUrl}
-                      onChange={(e) => setNewWebhookUrl(e.target.value)}
-                      placeholder="https://n8n.meusite.com/webhook/disparo-oferta"
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 text-xs font-mono focus:outline-none focus:border-blue-600"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1 text-[11px]">Chave Secret / Header de Autenticação (Opcional)</label>
-                    <input
-                      type="text"
-                      value={newWebhookSecret}
-                      onChange={(e) => setNewWebhookSecret(e.target.value)}
-                      placeholder="Ex: sec_tok_98123 (Enviado em X-Webhook-Secret)"
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 text-xs font-mono focus:outline-none focus:border-blue-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1 text-[11px]">Gatilho de Eventos</label>
-                    <div className="flex items-center space-x-3 pt-1 text-[11px]">
-                      <label className="flex items-center space-x-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newWebhookEvents.includes('DISPATCH_SUCCESS')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewWebhookEvents(prev => [...prev, 'DISPATCH_SUCCESS']);
-                            } else {
-                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'DISPATCH_SUCCESS'));
-                            }
-                          }}
-                          className="rounded text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-medium text-slate-700">Disparo Realizado</span>
-                      </label>
-
-                      <label className="flex items-center space-x-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newWebhookEvents.includes('PRICE_ALERT')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewWebhookEvents(prev => [...prev, 'PRICE_ALERT']);
-                            } else {
-                              setNewWebhookEvents(prev => prev.filter(ev => ev !== 'PRICE_ALERT'));
-                            }
-                          }}
-                          className="rounded text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-medium text-slate-700">Alerta de Preço</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleAddWebhook}
-                  disabled={!newWebhookUrl.trim()}
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center space-x-1.5 transition-all shadow-xs cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Adicionar Webhook</span>
-                </button>
-              </div>
-
-              {/* Registered Webhooks List */}
-              <div className="space-y-3">
-                <h4 className="font-bold text-slate-800 text-xs flex items-center justify-between">
-                  <span>Webhooks Cadastrados ({webhooks.length})</span>
-                  <span className="text-[11px] text-slate-400 font-normal">Disparos automáticos em background</span>
-                </h4>
-
-                {webhooks.length === 0 ? (
-                  <div className="p-6 border border-dashed border-slate-300 rounded-xl text-center text-slate-400 text-xs">
-                    Nenhum webhook cadastrado. Preencha os campos acima para adicionar um endpoint externo.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    {webhooks.map((wh) => {
-                      const testResult = testResults[wh.id];
-                      const isTesting = testingWebhookId === wh.id;
-
-                      return (
-                        <div
-                          key={wh.id}
-                          className={`p-3.5 border rounded-xl transition-all ${
-                            wh.enabled ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-60'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-1 overflow-hidden pr-2">
-                              <div className="flex items-center space-x-2">
-                                <span className={`w-2 h-2 rounded-full ${wh.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                                <h5 className="font-bold text-slate-900 text-xs truncate">{wh.name}</h5>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                  {wh.events.join(', ')}
-                                </span>
-                              </div>
-
-                              <p className="font-mono text-[11px] text-slate-600 truncate break-all">{wh.url}</p>
-
-                              {wh.secretToken && (
-                                <p className="text-[10px] text-slate-400 font-mono">
-                                  Header Secret: <span className="text-slate-600">X-Webhook-Secret</span>
-                                </p>
-                              )}
-
-                              <div className="flex items-center space-x-3 text-[10px] text-slate-400 pt-0.5">
-                                <span>Criado em: {wh.createdAt}</span>
-                                {wh.lastTriggeredAt && (
-                                  <span>Último envio: <strong className="text-slate-700">{wh.lastTriggeredAt}</strong></span>
-                                )}
-                                {wh.lastStatus && (
-                                  <span className={`font-bold ${wh.lastStatus === 200 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                    HTTP {wh.lastStatus}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center space-x-2 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleToggleWebhook(wh.id)}
-                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all border ${
-                                  wh.enabled
-                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                                    : 'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200'
-                                }`}
-                              >
-                                {wh.enabled ? 'Ativo' : 'Pausado'}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleTestWebhook(wh)}
-                                disabled={isTesting}
-                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 font-bold text-[11px] flex items-center space-x-1 transition-all"
-                              >
-                                {isTesting ? (
-                                  <>
-                                    <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
-                                    <span>Testando...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Send className="w-3 h-3 text-blue-600" />
-                                    <span>Testar</span>
-                                  </>
-                                )}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteWebhook(wh.id)}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                title="Excluir Webhook"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Real-Time Test Result Box */}
-                          {testResult && (
-                            <div
-                              className={`mt-2.5 p-2.5 rounded-lg text-[11px] flex items-start space-x-2 border ${
-                                testResult.isSuccess
-                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                                  : 'bg-amber-50 border-amber-200 text-amber-900'
-                              }`}
-                            >
-                              {testResult.isSuccess ? (
-                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                              ) : (
-                                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                              )}
-                              <div>
-                                <span className="font-bold mr-1">[{testResult.status}]</span>
-                                <span>{testResult.message}</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
+            <WebhookSettings
+              webhooks={webhooks}
+              onSaveWebhooks={(updatedWebhooks) => {
+                setWebhooks(updatedWebhooks);
+              }}
+              onRequirePlanActivation={onRequirePlanActivation}
+            />
           )}
 
           {/* Local Backup Quick Action Box */}

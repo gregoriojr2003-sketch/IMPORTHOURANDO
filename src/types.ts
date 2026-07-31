@@ -98,8 +98,18 @@ export interface MarketplaceAffiliateAccounts {
   magaluTag: string; // e.g. magazinetop
 }
 
+export type BrandVoiceRegionalStyle = 
+  | 'pt-BR-nordestino'
+  | 'pt-BR-paulistano'
+  | 'pt-BR-carioca'
+  | 'pt-BR-formal'
+  | 'pt-BR-casual'
+  | 'en-US'
+  | 'es-ES';
+
 export interface BrandVoiceConfig {
   toneStyle: 'FORMAL' | 'HYPED' | 'SALES' | 'HUMOROUS' | 'URGENT' | 'CUSTOM';
+  regionalStyle?: BrandVoiceRegionalStyle;
   brandName: string;
   greetingGreeting: string;
   customPromptInstructions: string;

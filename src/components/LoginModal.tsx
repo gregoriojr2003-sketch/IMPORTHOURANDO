@@ -1,3 +1,33 @@
+/*
+ * ============================================================================
+ * GUIA DE CONFIGURAÇÃO - AUTENTICAÇÃO REAL (FIREBASE AUTH / SUPABASE AUTH)
+ * ============================================================================
+ * Para conectar a autenticação oficial do seu projeto com Firebase Auth ou Supabase Auth:
+ * 
+ * 1. FIREBASE AUTHENTICATION (Recomendado):
+ *    - Instale no projeto: npm install firebase
+ *    - Crie o arquivo 'src/lib/firebase.ts' com suas credenciais do Firebase Console:
+ *        import { initializeApp } from 'firebase/app';
+ *        import { getAuth } from 'firebase/auth';
+ *        const firebaseConfig = {
+ *          apiKey: "SUA_FIREBASE_API_KEY",
+ *          authDomain: "seu-projeto.firebaseapp.com",
+ *          projectId: "seu-projeto-id",
+ *          storageBucket: "seu-projeto.appspot.com",
+ *          messagingSenderId: "1234567890",
+ *          appId: "1:1234567890:web:abcdef"
+ *        };
+ *        const app = initializeApp(firebaseConfig);
+ *        export const auth = getAuth(app);
+ * 
+ * 2. SUPABASE AUTHENTICATION:
+ *    - Instale no projeto: npm install @supabase/supabase-js
+ *    - Crie o arquivo 'src/lib/supabase.ts':
+ *        import { createClient } from '@supabase/supabase-js';
+ *        export const supabase = createClient('https://xyz.supabase.co', 'SUA_SUPABASE_ANON_KEY');
+ * ============================================================================
+ */
+
 import React, { useState } from 'react';
 import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, KeyRound, AlertCircle, X } from 'lucide-react';
 import { AppLogo } from './AppLogo';

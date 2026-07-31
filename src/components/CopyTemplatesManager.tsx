@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Cpu, Plus, Sparkles, Check, Tag, Image, Eye, MessageSquare, Smartphone, Zap, Wand2, Copy, Target } from 'lucide-react';
-import { OfferPostTemplate } from '../types';
+import { OfferPostTemplate, BrandVoiceRegionalStyle } from '../types';
 import { detectProductNiche, buildViralNicheCopy, OFFER_NICHES } from '../utils/nicheDetector';
 
 interface CopyTemplatesManagerProps {
@@ -28,6 +28,7 @@ export const CopyTemplatesManager: React.FC<CopyTemplatesManagerProps> = ({
   const [testOrigPrice, setTestOrigPrice] = useState(3199);
   const [testPrice, setTestPrice] = useState(2199);
   const [testDiscount, setTestDiscount] = useState(31);
+  const [selectedRegionalStyle, setSelectedRegionalStyle] = useState<BrandVoiceRegionalStyle>('pt-BR-nordestino');
   const [generatedNicheCopy, setGeneratedNicheCopy] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedTester, setCopiedTester] = useState(false);
@@ -41,6 +42,7 @@ export const CopyTemplatesManager: React.FC<CopyTemplatesManagerProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          regionalStyle: selectedRegionalStyle,
           product: {
             id: 'test-prod',
             title: testTitle,
@@ -74,7 +76,8 @@ export const CopyTemplatesManager: React.FC<CopyTemplatesManagerProps> = ({
           affiliateUrl: 'https://mercadolivre.com/sec/2a8Fk9L?matext=importhourando',
           category: detectedTesterNiche.name,
           shippingFree: true,
-          couponCode: 'MELITV200'
+          couponCode: 'MELITV200',
+          regionalStyle: selectedRegionalStyle
         });
         setGeneratedNicheCopy(fallback.copy);
       }
@@ -87,7 +90,8 @@ export const CopyTemplatesManager: React.FC<CopyTemplatesManagerProps> = ({
         affiliateUrl: 'https://mercadolivre.com/sec/2a8Fk9L?matext=importhourando',
         category: detectedTesterNiche.name,
         shippingFree: true,
-        couponCode: 'MELITV200'
+        couponCode: 'MELITV200',
+        regionalStyle: selectedRegionalStyle
       });
       setGeneratedNicheCopy(fallback.copy);
     } finally {
@@ -232,37 +236,59 @@ export const CopyTemplatesManager: React.FC<CopyTemplatesManagerProps> = ({
 
             {/* Title Input & Live Niche Detection Badge */}
             <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Título ou Nome do Produto:
-                </label>
-                <div className="flex gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Título ou Nome do Produto:
+                  </label>
                   <input
                     type="text"
                     value={testTitle}
                     onChange={(e) => setTestTitle(e.target.value)}
                     placeholder="Ex: Fritadeira Airfryer Philips Walita, PlayStation 5, Whey Protein..."
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-medium focus:outline-none focus:border-purple-600"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-medium focus:outline-none focus:border-purple-600"
                   />
-                  <button
-                    type="button"
-                    onClick={handleGenerateTesterCopy}
-                    disabled={isGenerating || !testTitle.trim()}
-                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow transition-all disabled:opacity-50 shrink-0"
-                  >
-                    {isGenerating ? (
-                      <>
-                        <Zap className="w-3.5 h-3.5 animate-spin" />
-                        <span>Gerando...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Wand2 className="w-3.5 h-3.5 text-[#FFE600]" />
-                        <span>Gerar Copy Viral</span>
-                      </>
-                    )}
-                  </button>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Brand Voice / Regionalismo:
+                  </label>
+                  <select
+                    value={selectedRegionalStyle}
+                    onChange={(e) => setSelectedRegionalStyle(e.target.value as BrandVoiceRegionalStyle)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-purple-900 focus:outline-none focus:border-purple-600"
+                  >
+                    <option value="pt-BR-nordestino">🌵 Português - Regional Nordestino</option>
+                    <option value="pt-BR-paulistano">🏙️ Português - Regional Paulistano</option>
+                    <option value="pt-BR-carioca">🏖️ Português - Regional Carioca</option>
+                    <option value="pt-BR-formal">💼 Português - Formal / Corporativo</option>
+                    <option value="pt-BR-casual">💬 Português - Casual / Informal</option>
+                    <option value="en-US">🇺🇸 Inglês (US)</option>
+                    <option value="es-ES">🇪🇸 Espanhol (ES)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleGenerateTesterCopy}
+                  disabled={isGenerating || !testTitle.trim()}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center space-x-1.5 shadow transition-all disabled:opacity-50 shrink-0"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Zap className="w-3.5 h-3.5 animate-spin" />
+                      <span>Gerando Copy com IA...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="w-3.5 h-3.5 text-[#FFE600]" />
+                      <span>Gerar Copy Viral no Tom Selecionado</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               {/* Detected Niche Badge Info */}

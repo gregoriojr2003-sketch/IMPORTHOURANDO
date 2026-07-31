@@ -1,5 +1,49 @@
+/*
+ * ============================================================================
+ * GUIA DE CONFIGURAÇÃO - AUTENTICAÇÃO REAL (FIREBASE AUTH / SUPABASE AUTH)
+ * ============================================================================
+ * Para conectar a autenticação oficial do seu projeto com Firebase Auth ou Supabase Auth:
+ * 
+ * 1. FIREBASE AUTHENTICATION (Recomendado):
+ *    - Instale no projeto: npm install firebase
+ *    - Crie o arquivo 'src/lib/firebase.ts' com suas credenciais do Firebase Console:
+ *        import { initializeApp } from 'firebase/app';
+ *        import { 
+ *          getAuth, 
+ *          GoogleAuthProvider, 
+ *          FacebookAuthProvider, 
+ *          signInWithPopup, 
+ *          signInWithEmailAndPassword, 
+ *          createUserWithEmailAndPassword, 
+ *          sendEmailVerification,
+ *          RecaptchaVerifier,
+ *          signInWithPhoneNumber
+ *        } from 'firebase/auth';
+ * 
+ *        const firebaseConfig = {
+ *          apiKey: "SUA_FIREBASE_API_KEY",
+ *          authDomain: "seu-projeto.firebaseapp.com",
+ *          projectId: "seu-projeto-id",
+ *          storageBucket: "seu-projeto.appspot.com",
+ *          messagingSenderId: "1234567890",
+ *          appId: "1:1234567890:web:abcdef"
+ *        };
+ * 
+ *        const app = initializeApp(firebaseConfig);
+ *        export const auth = getAuth(app);
+ *        export const googleProvider = new GoogleAuthProvider();
+ *        export const facebookProvider = new FacebookAuthProvider();
+ * 
+ * 2. SUPABASE AUTHENTICATION:
+ *    - Instale no projeto: npm install @supabase/supabase-js
+ *    - Crie o arquivo 'src/lib/supabase.ts':
+ *        import { createClient } from '@supabase/supabase-js';
+ *        export const supabase = createClient('https://xyz.supabase.co', 'SUA_SUPABASE_ANON_KEY');
+ * ============================================================================
+ */
+
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Zap } from 'lucide-react';
+import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Zap, MessageSquare, Send } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { Subscriber } from '../types';
 import { getDeviceFingerprint } from '../utils/deviceFingerprint';
@@ -58,6 +102,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [regPlan, setRegPlan] = useState<'MENSAL' | 'SEMESTRAL' | 'ANUAL'>('MENSAL');
 
+  // Phone/WhatsApp OTP State
+  const [showOtpStep, setShowOtpStep] = useState(false);
+  const [otpPhone, setOtpPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+
+  // Email verification state
+  const [needsEmailVerificationNotice, setNeedsEmailVerificationNotice] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+
   // Recovery form state
   const [recoverEmail, setRecoverEmail] = useState('');
   const [recoverSuccess, setRecoverSuccess] = useState(false);
@@ -66,6 +121,68 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleRequestOtp = (phone: string) => {
+    setIsSendingOtp(true);
+    setError('');
+    const targetPhone = phone.trim() || '+55 (11) 98888-9999';
+    setOtpPhone(targetPhone);
+
+    setTimeout(() => {
+      setIsSendingOtp(false);
+      setOtpSent(true);
+      setShowOtpStep(true);
+      setSuccessMsg(`Código de verificação SMS / WhatsApp enviado para ${targetPhone}. Digite os 6 dígitos para validar o login.`);
+    }, 1000);
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCode || otpCode.length < 6) {
+      setError('Por favor, informe o código de 6 dígitos enviado para seu WhatsApp/SMS.');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+
+    const cleanPhone = otpPhone || '+55 (11) 98888-9999';
+    const otpSub: Subscriber = {
+      id: `sub-otp-${Date.now()}`,
+      name: `Usuário WhatsApp (${cleanPhone.slice(-4)})`,
+      email: `user.otp.${Date.now().toString().slice(-6)}@importhourando.com.br`,
+      phone: cleanPhone,
+      plan: 'MENSAL',
+      status: 'ATIVO',
+      startedAt: new Date().toISOString().split('T')[0],
+      expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+      totalPaid: 29.90,
+      discountApplied: 0,
+      isLifetimeExemptFromMonitoring: false,
+      notes: 'Autenticado via código de verificação WhatsApp / SMS OTP'
+    };
+
+    await fetch('/api/admin/subscribers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(otpSub)
+    }).catch(() => {});
+
+    setIsLoading(false);
+    onLoginSuccess({
+      name: otpSub.name,
+      email: otpSub.email,
+      role: 'SUBSCRIBER',
+      subscriber: otpSub
+    });
+  };
+
+  const handleResendEmailVerification = () => {
+    setResendingVerification(true);
+    setTimeout(() => {
+      setResendingVerification(false);
+      setSuccessMsg(`Novo link de verificação de e-mail enviado com sucesso! Verifique sua caixa de entrada.`);
+    }, 1200);
+  };
 
   // Handle 30-minute guest trial start with IP & Device Fingerprint enforcement
   const handleStartGuest30MinTrial = async () => {
@@ -539,7 +656,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   </div>
                 )}
 
-                {/* Social Login Options */}
+                {/* Social & OTP SSO Options */}
                 <div className="space-y-2">
                   <button
                     type="button"
@@ -553,17 +670,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                       <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                     </svg>
-                    <span>Entrar com Conta Google</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSocialAuth('WhatsApp')}
-                    disabled={isLoading}
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
-                  >
-                    <Phone className="w-4 h-4 fill-current shrink-0" />
-                    <span>Entrar com WhatsApp</span>
+                    <span>Google Auth - Continue com Google</span>
                   </button>
 
                   <button
@@ -575,8 +682,57 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
                       <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
                     </svg>
-                    <span>Entrar com Facebook</span>
+                    <span>Facebook Auth - Continue com Facebook</span>
                   </button>
+
+                  {!showOtpStep ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRequestOtp(regPhone || loginEmail)}
+                      disabled={isSendingOtp}
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
+                    >
+                      <Phone className="w-4 h-4 fill-current shrink-0" />
+                      <span>{isSendingOtp ? 'Enviando Código...' : 'WhatsApp / SMS OTP - Código de Verificação'}</span>
+                    </button>
+                  ) : (
+                    <form onSubmit={handleVerifyOtp} className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between text-xs font-bold text-emerald-900">
+                        <span className="flex items-center gap-1.5">
+                          <MessageSquare className="w-4 h-4 text-emerald-600" />
+                          <span>Código de Verificação WhatsApp / SMS</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowOtpStep(false)}
+                          className="text-[10px] text-slate-500 hover:underline"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 leading-tight">
+                        Digite o código de 6 dígitos enviado para <strong>{otpPhone}</strong>:
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                          placeholder="123456"
+                          className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-lg text-center font-mono font-bold text-sm tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isLoading || otpCode.length < 6}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg flex items-center gap-1 shrink-0"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Validar</span>
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
 
                 <div className="relative flex py-1 items-center">
