@@ -248,7 +248,12 @@ async function startServer() {
   await initDatabase().catch(err => console.error('[DATABASE] Initialization error:', err));
 
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const rawPort = process.env.PORT;
+  let PORT: number | string = 3000;
+  if (rawPort) {
+    const parsed = parseInt(rawPort, 10);
+    PORT = !isNaN(parsed) && parsed > 0 ? parsed : rawPort;
+  }
 
   // --- SECURITY & CORS HEADERS MIDDLEWARE ---
   app.use((req, res, next) => {
@@ -2122,38 +2127,62 @@ Diretrizes Obrigatórias de Formatação Viral:
 
   // --- VITE / STATIC SERVING ---
 
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    let distPath = path.join(process.cwd(), 'dist');
-    if (!fs.existsSync(path.join(distPath, 'index.html'))) {
-      if (fs.existsSync(path.join(process.cwd(), 'index.html'))) {
-        distPath = process.cwd();
-      } else if (fs.existsSync(path.join(__dirname, 'dist', 'index.html'))) {
-        distPath = path.join(__dirname, 'dist');
-      } else if (fs.existsSync(path.join(__dirname, 'index.html'))) {
-        distPath = __dirname;
-      }
-    }
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    currentFilename.endsWith('.cjs') ||
+    currentFilename.includes('dist');
 
-    console.log(`[Production] Serving static files from: ${distPath}`);
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      const indexPath = path.join(distPath, 'index.html');
-      if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-      } else {
-        res.status(404).send('<h1>Aviso do Servidor: Arquivos estáticos (index.html) não encontrados.</h1><p>Por favor execute <code>npm run build</code> para gerar a pasta dist.</p>');
-      }
-    });
+  if (!isProduction) {
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.warn('[Vite Server Init Fallback] Fallback to static serving due to:', e);
+      serveStaticFiles(app);
+    }
+  } else {
+    serveStaticFiles(app);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server MeliOfertas running on http://0.0.0.0:${PORT}`);
+  if (typeof PORT === 'string') {
+    app.listen(PORT, () => {
+      console.log(`Server MeliOfertas running on socket/pipe: ${PORT}`);
+    });
+  } else {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server MeliOfertas running on http://0.0.0.0:${PORT}`);
+    });
+  }
+}
+
+function serveStaticFiles(app: express.Express) {
+  let distPath = path.join(process.cwd(), 'dist');
+  if (!fs.existsSync(path.join(distPath, 'index.html'))) {
+    if (fs.existsSync(path.join(__dirname, 'dist', 'index.html'))) {
+      distPath = path.join(__dirname, 'dist');
+    } else if (fs.existsSync(path.join(process.cwd(), 'index.html'))) {
+      distPath = process.cwd();
+    } else if (fs.existsSync(path.join(__dirname, 'index.html'))) {
+      distPath = __dirname;
+    }
+  }
+
+  console.log(`[Production] Serving static files from: ${distPath}`);
+  app.use(express.static(distPath, { index: false }));
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: `Rota de API '${req.path}' não encontrada.` });
+    }
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send('<h1>Aviso do Servidor: Arquivos estáticos (index.html) não encontrados.</h1><p>Por favor execute <code>npm run build</code> para gerar a pasta dist.</p>');
+    }
   });
 }
 
