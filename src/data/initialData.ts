@@ -382,12 +382,23 @@ export const INITIAL_AFFILIATE_CONFIG: AffiliateConfig = {
   },
   brandVoice: {
     toneStyle: 'HYPED',
+    languageStyle: 'PORTUGUES_PADRAO',
     brandName: 'IMPORTHOURANDO',
     greetingGreeting: '🔥 Fala galera do IMPORTHOURANDO!',
     customPromptInstructions: 'Destaque a economia no valor do produto, crie senso de urgência motivando a compra imediata e mencione que a oferta é de procedência verificada.',
     emojiDensity: 'HIGH',
     brandSignatureText: '⚡ IMPORTHOURANDO - O robô que garante o menor preço para você!',
     customCtaPhrase: '👉 GARANTA A SUA OFERTA COM DESCONTO AQUI:'
+  },
+  webhookConfig: {
+    enabled: true,
+    url: 'https://webhook.site/importhourando-demo',
+    secretKey: 'whsec_importhourando_2026_key',
+    events: ['OFFER_DISPATCHED', 'NEW_LEAD_CLICK', 'OFFER_AUTO_POSTED', 'SUBSCRIBER_REGISTERED'],
+    retryOnFailure: true,
+    lastTriggeredAt: '2026-07-31 14:20',
+    lastStatus: 'SUCCESS',
+    lastResponseCode: 200
   },
   defaultChannelInviteLink: 'https://whatsapp.com/channel/0029Va901823748291',
   mlAppId: '829401827410293',

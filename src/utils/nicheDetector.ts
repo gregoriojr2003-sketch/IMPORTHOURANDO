@@ -1,3 +1,5 @@
+import { LanguageRegionalStyle } from '../types';
+
 export interface OfferNiche {
   id: string;
   name: string;
@@ -324,6 +326,7 @@ export function buildViralNicheCopy(params: {
   customCtaPhrase?: string;
   brandSignatureText?: string;
   channelInviteLink?: string;
+  languageStyle?: LanguageRegionalStyle;
 }): { copy: string; niche: OfferNiche } {
   const niche = detectProductNiche(params.productTitle, params.category);
 
@@ -331,6 +334,26 @@ export function buildViralNicheCopy(params: {
   const formattedOrigPrice = params.originalPrice.toFixed(2).replace('.', ',');
   const formattedPrice = params.price.toFixed(2).replace('.', ',');
   const mpName = params.marketplaceName || 'Mercado Livre';
+
+  // Regional prefix flavor
+  let regionalPrefix = '';
+  if (params.languageStyle === 'NORDESTINO') {
+    regionalPrefix = '🌵 *OXE, VISSE?! OFERTA ARRETADA DEMAIS!* 🌵\n';
+  } else if (params.languageStyle === 'PAULISTANO') {
+    regionalPrefix = '🍕 *PÔ MEU! MEU DEUS, DA HORA DEMAIS ESSA PROMO!* 🍕\n';
+  } else if (params.languageStyle === 'CARIOCA') {
+    regionalPrefix = '🏖️ *MERMÃO, OLHA ISSO! MANEIRO PRA CARAMBA!* 🏖️\n';
+  } else if (params.languageStyle === 'GAUCHO') {
+    regionalPrefix = '🧉 *BAH TCHÊ! TRI LEGAL ESSA PROMOÇÃO!* 🧉\n';
+  } else if (params.languageStyle === 'MINEIRO') {
+    regionalPrefix = '☕ *UAI! OLHA ESSE TREM BÃO DEMAIS COM DESCONTO!* ☕\n';
+  } else if (params.languageStyle === 'FORMAL_EXECUTIVO') {
+    regionalPrefix = '💼 *OPORTUNIDADE CORPORATIVA EXCLUSIVA* 💼\n';
+  } else if (params.languageStyle === 'INGLES') {
+    regionalPrefix = '🇺🇸 *EXCLUSIVE DEAL & LIMITED TIME OFFER!* 🇺🇸\n';
+  } else if (params.languageStyle === 'ESPANHOL') {
+    regionalPrefix = '🇪🇸 *¡OFERTA IMPERDIBLE Y DESCUENTO EXCLUSIVO!* 🇪🇸\n';
+  }
 
   // Random viral hook from niche
   const randomHook = niche.viralHooks[Math.floor(Math.random() * niche.viralHooks.length)];
@@ -340,7 +363,7 @@ export function buildViralNicheCopy(params: {
   const cta = params.customCtaPhrase || niche.ctaPhrase;
   const signature = params.brandSignatureText ? `\n\n${params.brandSignatureText}` : '\n\n⚡ *IMPORTHOURANDO - Garantindo o menor preço para você!*';
 
-  let copy = `${greeting}\n\n`;
+  let copy = `${regionalPrefix}${greeting}\n\n`;
   copy += `${niche.badge}\n`;
   copy += `${randomHook}\n\n`;
   copy += `📦 *${params.productTitle}* (${mpName})\n\n`;

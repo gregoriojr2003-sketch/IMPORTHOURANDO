@@ -98,14 +98,55 @@ export interface MarketplaceAffiliateAccounts {
   magaluTag: string; // e.g. magazinetop
 }
 
+export type LanguageRegionalStyle =
+  | 'PORTUGUES_PADRAO'
+  | 'NORDESTINO'
+  | 'PAULISTANO'
+  | 'CARIOCA'
+  | 'GAUCHO'
+  | 'MINEIRO'
+  | 'FORMAL_EXECUTIVO'
+  | 'INGLES'
+  | 'ESPANHOL';
+
 export interface BrandVoiceConfig {
   toneStyle: 'FORMAL' | 'HYPED' | 'SALES' | 'HUMOROUS' | 'URGENT' | 'CUSTOM';
+  languageStyle?: LanguageRegionalStyle;
+  customLanguageInstructions?: string;
   brandName: string;
   greetingGreeting: string;
   customPromptInstructions: string;
   emojiDensity: 'HIGH' | 'MEDIUM' | 'MINIMAL';
   brandSignatureText: string;
   customCtaPhrase: string;
+}
+
+export type WebhookEvent =
+  | 'OFFER_DISPATCHED'
+  | 'NEW_LEAD_CLICK'
+  | 'OFFER_AUTO_POSTED'
+  | 'PRICE_ALERT_TRIGGERED'
+  | 'SUBSCRIBER_REGISTERED';
+
+export interface WebhookConfig {
+  enabled: boolean;
+  url: string;
+  secretKey: string;
+  events: WebhookEvent[];
+  retryOnFailure: boolean;
+  lastTriggeredAt?: string;
+  lastStatus?: 'SUCCESS' | 'FAILED';
+  lastResponseCode?: number;
+}
+
+export interface WebhookLog {
+  id: string;
+  event: WebhookEvent;
+  url: string;
+  status: 'SUCCESS' | 'FAILED';
+  responseCode: number;
+  payloadSummary: string;
+  timestamp: string;
 }
 
 export interface AffiliateConfig {
@@ -117,6 +158,9 @@ export interface AffiliateConfig {
 
   // Brand Voice & AI Copy Directives
   brandVoice?: BrandVoiceConfig;
+
+  // Webhook Integrations
+  webhookConfig?: WebhookConfig;
 
   mlAppId?: string;
   mlSecretKey?: string;
@@ -142,7 +186,7 @@ export interface MLSearchFilter {
   sortBy: 'discount' | 'price_low' | 'relevance';
 }
 
-export type SubscriptionPlan = 'MENSAL' | 'SEMESTRAL' | 'ANUAL';
+export type SubscriptionPlan = 'MENSAL' | 'SEMESTRAL' | 'ANUAL' | 'VITALICIO';
 export type SubscriberStatus = 'ATIVO' | 'CANCELADO' | 'RECONQUISTA_3M' | 'EXPIRADO' | 'PENDENTE';
 
 export interface Subscriber {
@@ -178,8 +222,10 @@ export interface UserSession {
     name: string;
     email: string;
     role: 'ADMIN' | 'SUBSCRIBER';
-    plan: SubscriptionPlan;
-    isFree: boolean;
+    actualRole?: 'ADMIN' | 'SUBSCRIBER';
+    subscriber?: Subscriber;
+    plan?: SubscriptionPlan;
+    isFree?: boolean;
   };
 }
 

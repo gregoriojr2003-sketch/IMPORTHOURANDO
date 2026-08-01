@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Send, MousePointerClick, DollarSign, Users, Zap, ExternalLink, ArrowUpRight, Plus, Sparkles, CheckCircle2, Clock, ShieldCheck, Pause, Play, Link, AlertTriangle, HelpCircle, TrendingUp, BarChart3, PieChart, ShoppingBag, FileSpreadsheet, Trash2, Search, X, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { DispatchedOffer, WhatsAppChannel, MercadoLivreProduct, AutoSchedulerConfig, AffiliateConfig } from '../types';
 import { exportDispatchesToCSV } from '../utils/csvExporter';
 
@@ -88,6 +89,57 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   });
 
   const topPerformingMp = [...marketplaceStats].sort((a, b) => b.commission - a.commission)[0];
+
+  // Calculate 7-day dispatches performance for Recharts
+  const last7DaysChartData = useMemo(() => {
+    const days = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+
+      const dayTwoDigits = String(d.getDate()).padStart(2, '0');
+      const monthTwoDigits = String(d.getMonth() + 1).padStart(2, '0');
+      const yearFull = d.getFullYear();
+
+      const dateShortStr = `${dayTwoDigits}/${monthTwoDigits}`;
+      const dateIsoStr = `${yearFull}-${monthTwoDigits}-${dayTwoDigits}`;
+      const dateBrFullStr = `${dayTwoDigits}/${monthTwoDigits}/${yearFull}`;
+
+      const rawWeekDay = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+      const weekDayLabel = rawWeekDay.charAt(0).toUpperCase() + rawWeekDay.slice(1);
+
+      // Filter dispatched logs for this day
+      const dayLogs = dispatchedLogs.filter((log) => {
+        const timeStr = log.sentAt || (log as any).createdAt || '';
+        return (
+          timeStr.includes(dateIsoStr) ||
+          timeStr.includes(dateBrFullStr) ||
+          timeStr.startsWith(dateShortStr)
+        );
+      });
+
+      const offersCount = dayLogs.length;
+      const clicksCount = dayLogs.reduce((acc, curr) => acc + (curr.clicksCount || 0), 0);
+      const commissionSum = dayLogs.reduce((acc, curr) => acc + (curr.estimatedComission || 0), 0);
+
+      days.push({
+        dayLabel: `${weekDayLabel} (${dateShortStr})`,
+        shortDate: dateShortStr,
+        weekDay: weekDayLabel,
+        ofertas: offersCount,
+        cliques: clicksCount,
+        comissao: Number(commissionSum.toFixed(2))
+      });
+    }
+
+    return days;
+  }, [dispatchedLogs]);
+
+  const total7DaysOffers = last7DaysChartData.reduce((acc, curr) => acc + curr.ofertas, 0);
+  const avg7DaysOffers = Math.round(total7DaysOffers / 7);
+  const peakDay = [...last7DaysChartData].sort((a, b) => b.ofertas - a.ofertas)[0];
 
   const handleQuickParse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -362,6 +414,113 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-xs text-slate-500">de {channels.length} cadastrados</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">Público total ~23k membros</p>
+        </div>
+      </div>
+
+      {/* 7-Day Performance Chart using Recharts */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-xl bg-blue-50 text-[#3483FA] border border-blue-100">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="font-extrabold text-slate-900 text-base">
+                  Desempenho de Disparos nos Últimos 7 Dias
+                </h3>
+                <span className="bg-blue-100 text-[#2D3277] text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-blue-200">
+                  Gráfico Recharts
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Volume de ofertas enviadas aos canais e grupos do WhatsApp pelo robô de automação.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 text-xs shrink-0">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex items-center space-x-2">
+              <span className="text-slate-500 font-medium">Total 7 dias:</span>
+              <span className="font-black text-[#2D3277]">{total7DaysOffers} ofertas</span>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 items-center space-x-2 hidden md:flex">
+              <span className="text-slate-500 font-medium">Média diária:</span>
+              <span className="font-bold text-emerald-700">~{avg7DaysOffers}/dia</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 7-day Summary Badges */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Disparado (7d)</span>
+            <span className="text-base font-black text-slate-900">{total7DaysOffers} ofertas</span>
+          </div>
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Média Diária</span>
+            <span className="text-base font-black text-[#2D3277]">{avg7DaysOffers} disparos</span>
+          </div>
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Pico do Período</span>
+            <span className="text-base font-black text-amber-600">
+              {peakDay ? `${peakDay.ofertas} (${peakDay.weekDay})` : '0'}
+            </span>
+          </div>
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Total de Cliques</span>
+            <span className="text-base font-black text-emerald-600">
+              {last7DaysChartData.reduce((a, c) => a + c.cliques, 0)} cliques
+            </span>
+          </div>
+        </div>
+
+        {/* Recharts Area Chart Container */}
+        <div className="h-64 w-full pt-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={last7DaysChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorOfertas" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3483FA" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#3483FA" stopOpacity={0.0} />
+                </linearGradient>
+                <linearGradient id="colorCliques" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.5} />
+                  <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+              <XAxis dataKey="dayLabel" tick={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload;
+                    return (
+                      <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700 font-sans">
+                        <p className="font-black text-amber-400 text-xs border-b border-slate-800 pb-1">{data.dayLabel}</p>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-slate-300">Ofertas Disparadas:</span>
+                          <span className="font-black text-blue-400 text-sm">{data.ofertas}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-slate-300">Cliques nos Links:</span>
+                          <span className="font-bold text-emerald-400">{data.cliques}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-slate-300">Comissão Est.:</span>
+                          <span className="font-mono font-bold text-amber-300">R$ {data.comissao.toFixed(2).replace('.', ',')}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Area type="monotone" dataKey="ofertas" name="Ofertas Disparadas" stroke="#3483FA" strokeWidth={3} fillOpacity={1} fill="url(#colorOfertas)" />
+              <Area type="monotone" dataKey="cliques" name="Cliques Gerados" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" fillOpacity={1} fill="url(#colorCliques)" />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
 

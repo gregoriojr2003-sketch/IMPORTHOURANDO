@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info } from 'lucide-react';
-import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig } from '../types';
+import React, { useState, useEffect } from 'react';
+import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info, Webhook, Play, AlertCircle, RefreshCw, Send } from 'lucide-react';
+import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig, type LanguageRegionalStyle, WebhookConfig, WebhookEvent, WebhookLog } from '../types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveConfig,
   onRequirePlanActivation
 }) => {
-  const [activeTab, setActiveTab] = useState<'MARKETPLACES' | 'WHATSAPP' | 'BRAND_VOICE'>('MARKETPLACES');
+  const [activeTab, setActiveTab] = useState<'MARKETPLACES' | 'WHATSAPP' | 'BRAND_VOICE' | 'WEBHOOKS'>('MARKETPLACES');
 
   // Marketplace Accounts
   const initialAccounts: MarketplaceAffiliateAccounts = config.marketplaceAccounts || {
@@ -32,6 +32,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const initialBrandVoice: BrandVoiceConfig = config.brandVoice || {
     toneStyle: 'HYPED',
     brandName: 'IMPORTHOURANDO',
+    languageStyle: 'PORTUGUES_PADRAO',
     greetingGreeting: '🔥 Fala galera do IMPORTHOURANDO!',
     customPromptInstructions: 'Destaque a economia no valor do produto em reais, crie senso de urgência motivando a compra imediata e mencione que a oferta é de procedência verificada.',
     emojiDensity: 'HIGH',
@@ -39,8 +40,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     customCtaPhrase: '👉 GARANTA A SUA OFERTA COM DESCONTO AQUI:'
   };
 
+  const initialWebhookConfig: WebhookConfig = config.webhookConfig || {
+    enabled: true,
+    url: 'https://webhook.site/importhourando-demo',
+    secretKey: 'whsec_importhourando_live_981273912835',
+    events: ['OFFER_DISPATCHED', 'OFFER_AUTO_POSTED', 'SUBSCRIBER_REGISTERED'],
+    retryOnFailure: true,
+    lastTriggeredAt: '2026-07-31 14:20',
+    lastStatus: 'SUCCESS',
+    lastResponseCode: 200
+  };
+
   const [marketplaceAccounts, setMarketplaceAccounts] = useState<MarketplaceAffiliateAccounts>(initialAccounts);
   const [brandVoice, setBrandVoice] = useState<BrandVoiceConfig>(initialBrandVoice);
+  const [webhookConfig, setWebhookConfig] = useState<WebhookConfig>(initialWebhookConfig);
   const [defaultChannelInviteLink, setDefaultChannelInviteLink] = useState(config.defaultChannelInviteLink || 'https://whatsapp.com/channel/0029Va901823748291');
 
   const [customDomain, setCustomDomain] = useState(config.customDomain || '');
@@ -49,7 +62,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [whatsappInstance, setWhatsappInstance] = useState(config.whatsappInstance);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // Webhook Test State
+  const [webhookLogs, setWebhookLogs] = useState<WebhookLog[]>([]);
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetch('/api/webhooks/logs')
+        .then(res => res.json())
+        .then(data => {
+          if (data.logs) setWebhookLogs(data.logs);
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/webhooks/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: webhookConfig.url,
+          secretKey: webhookConfig.secretKey,
+          event: 'OFFER_DISPATCHED'
+        })
+      });
+      const data = await res.json();
+      setTestResult(data);
+      if (data.log) {
+        setWebhookLogs(prev => [data.log, ...prev]);
+        setWebhookConfig(prev => ({
+          ...prev,
+          lastTriggeredAt: data.log.timestamp,
+          lastStatus: data.log.status,
+          lastResponseCode: data.log.responseCode
+        }));
+      }
+    } catch (err: any) {
+      setTestResult({ success: false, message: 'Erro ao conectar ao webhook' });
+    } finally {
+      setTestingWebhook(false);
+    }
+  };
+
+  const handleToggleWebhookEvent = (ev: WebhookEvent) => {
+    const currentEvents = webhookConfig.events || [];
+    if (currentEvents.includes(ev)) {
+      setWebhookConfig({ ...webhookConfig, events: currentEvents.filter(e => e !== ev) });
+    } else {
+      setWebhookConfig({ ...webhookConfig, events: [...currentEvents, ev] });
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       affiliateTag: marketplaceAccounts.mercadoLivreTag,
       marketplaceAccounts,
       brandVoice,
+      webhookConfig,
       defaultChannelInviteLink,
       customDomain,
       whatsappApiType,
@@ -77,15 +147,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl text-slate-900 shadow-2xl overflow-hidden my-8">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-3xl text-slate-900 shadow-2xl overflow-hidden my-8">
         <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 rounded-xl bg-[#2D3277] text-[#FFE600] font-bold shadow-sm">
               <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-base text-slate-900">Configurações Gerais, Voz & WhatsApp</h3>
-              <p className="text-xs text-slate-500">Credenciais de Afiliado, Tom de Voz da Marca e API WhatsApp</p>
+              <h3 className="font-bold text-base text-slate-900">Configurações Gerais, Voz, Webhooks & WhatsApp</h3>
+              <p className="text-xs text-slate-500">Credenciais de Afiliado, Estilo Regional, Webhooks e API WhatsApp</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg">
@@ -94,11 +164,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 bg-slate-100 text-xs font-bold">
+        <div className="flex border-b border-slate-200 bg-slate-100 text-xs font-bold overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('MARKETPLACES')}
-            className={`flex-1 py-3 px-3 text-center border-b-2 transition-all flex items-center justify-center space-x-1.5 ${
+            className={`py-3 px-3 text-center border-b-2 whitespace-nowrap transition-all flex items-center justify-center space-x-1.5 flex-1 ${
               activeTab === 'MARKETPLACES'
                 ? 'border-[#2D3277] text-[#2D3277] bg-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -111,27 +181,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('BRAND_VOICE')}
-            className={`flex-1 py-3 px-3 text-center border-b-2 transition-all flex items-center justify-center space-x-1.5 ${
+            className={`py-3 px-3 text-center border-b-2 whitespace-nowrap transition-all flex items-center justify-center space-x-1.5 flex-1 ${
               activeTab === 'BRAND_VOICE'
                 ? 'border-[#2D3277] text-[#2D3277] bg-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Sparkles className="w-4 h-4 text-purple-600" />
-            <span>Tom de Voz & IA da Marca</span>
+            <span>Tom de Voz & Estilo Regional</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('WEBHOOKS')}
+            className={`py-3 px-3 text-center border-b-2 whitespace-nowrap transition-all flex items-center justify-center space-x-1.5 flex-1 ${
+              activeTab === 'WEBHOOKS'
+                ? 'border-[#2D3277] text-[#2D3277] bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Webhook className="w-4 h-4 text-blue-600" />
+            <span>Webhooks & Integrações</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('WHATSAPP')}
-            className={`flex-1 py-3 px-3 text-center border-b-2 transition-all flex items-center justify-center space-x-1.5 ${
+            className={`py-3 px-3 text-center border-b-2 whitespace-nowrap transition-all flex items-center justify-center space-x-1.5 flex-1 ${
               activeTab === 'WHATSAPP'
                 ? 'border-[#2D3277] text-[#2D3277] bg-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Server className="w-4 h-4 text-emerald-600" />
-            <span>API & Canal do WhatsApp</span>
+            <span>API & Canal WhatsApp</span>
           </button>
         </div>
 
@@ -258,10 +341,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="p-3.5 bg-gradient-to-r from-purple-900 to-indigo-900 rounded-xl text-white space-y-1 shadow-sm">
                 <div className="flex items-center space-x-2 font-extrabold text-xs">
                   <Sparkles className="w-4 h-4 text-[#FFE600]" />
-                  <span>Personalização de Voz e Identidade da Marca (IA Gemini)</span>
+                  <span>Personalização de Voz, Idioma & Estilo Regional (IA Gemini)</span>
                 </div>
                 <p className="text-[11px] text-purple-200/90 leading-relaxed">
-                  Defina exatamente como o <strong>IMPORTHOURANDO</strong> deve se comunicar! As instruções abaixo serão injetadas diretamente no modelo de Inteligência Artificial para gerar textos no WhatsApp e Status alinhados com a sua marca.
+                  Defina o idioma, o sotaque/estilo regional brasileiro e o tom da sua marca. O <strong>IMPORTHOURANDO</strong> usará gírias regionais brasileiras (Nordestino, Paulistano, Carioca, Gaúcho, Mineiro) ou formato formal/internacional para gerar ofertas autênticas!
+                </p>
+              </div>
+
+              {/* NOVO: Seleção de Idioma e Estilo Regional Brasileiro */}
+              <div className="bg-purple-50/70 p-4 rounded-xl border border-purple-200 space-y-2">
+                <label className="block font-bold text-purple-950 text-xs flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <Globe className="w-4 h-4 text-purple-700" />
+                    <span>Idioma e Estilo Regional Brasileiro</span>
+                  </span>
+                  <span className="text-[10px] text-purple-700 bg-purple-100 px-2 py-0.5 rounded font-mono font-bold">Gírias & Dialetos</span>
+                </label>
+                
+                <select
+                  value={brandVoice.languageStyle || 'PORTUGUES_PADRAO'}
+                  onChange={(e) => setBrandVoice({ ...brandVoice, languageStyle: e.target.value as any })}
+                  className="w-full bg-white border border-purple-300 rounded-xl p-2.5 text-xs font-bold text-purple-950 focus:outline-none focus:border-purple-600 shadow-sm"
+                >
+                  <option value="PORTUGUES_PADRAO">🇧🇷 Português Padrão (Limpo & Persuasivo)</option>
+                  <option value="NORDESTINO">🌵 Nordestino (Oxe, Visse, Arretado, Danado de bom, Cabra)</option>
+                  <option value="PAULISTANO">🌆 Paulistano (Pô meu, Da hora, Mano, Meu Deus, Bagulho doido)</option>
+                  <option value="CARIOCA">🏖️ Carioca (Mermão, Caraca, Maneiro, Sinistro, Com certeza bro)</option>
+                  <option value="GAUCHO">🧉 Gaúcho (Bah, Tchê, Tri legal, Capaz, Mas bah)</option>
+                  <option value="MINEIRO">🧀 Mineiro (Uai, Trem bão, Nuuu, Bão demais da conta)</option>
+                  <option value="FORMAL_EXECUTIVO">💼 Formal Executivo / Corporativo (Linguagem sóbria e elegante)</option>
+                  <option value="INGLES">🇺🇸 English (International E-commerce & Dropshipping Hype)</option>
+                  <option value="ESPANHOL">🇪🇸 Español (Latino América & Promociones)</option>
+                </select>
+                <p className="text-[11px] text-purple-800/80">
+                  {brandVoice.languageStyle === 'NORDESTINO' && '🌵 Exemplo: "OXE, VISSE?! Olha essa promoção arretada de boa pra você!"'}
+                  {brandVoice.languageStyle === 'PAULISTANO' && '🌆 Exemplo: "PÔ MEU, DA HORA DEMAIS! Dá um liga nesse desconto insano, mano!"'}
+                  {brandVoice.languageStyle === 'CARIOCA' && '🏖️ Exemplo: "CARACA MERMÃO, SINISTRO! Olha o preço dessa Smart TV, fala tu!"'}
+                  {brandVoice.languageStyle === 'GAUCHO' && '🧉 Exemplo: "BAH TCHÊ, TRI LEGAL! Bah, essa oferta tá de graça pra ti, tchê!"'}
+                  {brandVoice.languageStyle === 'MINEIRO' && '🧀 Exemplo: "UAI, NUUU! Que trem bão esse desconto, cê num tá doido não!"'}
+                  {brandVoice.languageStyle === 'FORMAL_EXECUTIVO' && '💼 Exemplo: "Prezado(a), informamos uma oportunidade exclusiva de aquisição corporativa com desconto."' }
+                  {(!brandVoice.languageStyle || brandVoice.languageStyle === 'PORTUGUES_PADRAO') && '🇧🇷 Exemplo: "🔥 OFERTA IMPERDÍVEL! Confira esse desconto direto em reais para você!"'}
                 </p>
               </div>
 
@@ -385,20 +504,150 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-purple-600 font-medium"
                 />
               </div>
+            </div>
+          )}
 
-              {/* Visual Preview Box */}
-              <div className="bg-slate-900 text-slate-100 p-3.5 rounded-xl space-y-1 border border-purple-800">
-                <span className="text-[10px] uppercase font-bold text-purple-400 block tracking-wider">
-                  Pré-visualização do Formato da Sua Marca ({brandVoice.brandName}):
-                </span>
-                <p className="text-xs font-sans whitespace-pre-line leading-relaxed text-slate-200 font-mono">
-                  {brandVoice.greetingGreeting || '🔥 ABERTURA'}{'\n\n'}
-                  📦 *Smart TV 55" Samsung 4K UHD*{'\n'}
-                  ❌ De R$ 3.199,00 por apenas *R$ 2.199,00*{'\n'}
-                  {brandVoice.customCtaPhrase || '👉 GARANTA AQUI:'}{'\n'}
-                  https://mercadolivre.com/sec/2a8Fk9L{'\n\n'}
-                  {brandVoice.brandSignatureText}
+          {/* TAB WEBHOOKS */}
+          {activeTab === 'WEBHOOKS' && (
+            <div className="space-y-4">
+              <div className="p-3.5 bg-blue-900 text-white rounded-xl space-y-1 shadow-sm">
+                <div className="flex items-center space-x-2 font-extrabold text-xs">
+                  <Webhook className="w-4 h-4 text-cyan-300" />
+                  <span>Configuração de Webhooks & Automação de Eventos</span>
+                </div>
+                <p className="text-[11px] text-blue-200 leading-relaxed">
+                  Envie notificações instantâneas em tempo real (HTTP POST JSON) para seus sistemas, CRM, n8n, Make ou Typebot sempre que uma oferta for disparada ou um novo assinante se cadastrar!
                 </p>
+              </div>
+
+              {/* Toggle Habilitar Webhook */}
+              <div className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <div>
+                  <p className="font-bold text-slate-900 text-xs">Status do Envio de Webhooks</p>
+                  <p className="text-[11px] text-slate-500">Notificar servidores externos em tempo real</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWebhookConfig({ ...webhookConfig, enabled: !webhookConfig.enabled })}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    webhookConfig.enabled
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {webhookConfig.enabled ? '✓ Webhooks Ativos' : 'Desativado'}
+                </button>
+              </div>
+
+              {/* Endpoint URL & Secret Key */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">URL Endpoint do Seu Webhook (HTTP POST)</label>
+                  <input
+                    type="url"
+                    value={webhookConfig.url}
+                    onChange={(e) => setWebhookConfig({ ...webhookConfig, url: e.target.value })}
+                    placeholder="Ex: https://webhook.site/importhourando-demo ou https://seu-n8n.com/webhook/..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 font-mono text-xs focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Secret Key de Segurança (Header `X-Webhook-Secret`)</label>
+                  <input
+                    type="text"
+                    value={webhookConfig.secretKey}
+                    onChange={(e) => setWebhookConfig({ ...webhookConfig, secretKey: e.target.value })}
+                    placeholder="Ex: whsec_123456"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-900 font-mono text-xs focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+              </div>
+
+              {/* Eventos Selecionáveis */}
+              <div className="space-y-2">
+                <label className="block font-bold text-slate-800">Eventos de Disparo Selecionados:</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { key: 'OFFER_DISPATCHED', label: '🚀 Oferta Disparada no WhatsApp' },
+                    { key: 'OFFER_AUTO_POSTED', label: '🤖 Oferta Postada Automaticamente pelo Robô' },
+                    { key: 'SUBSCRIBER_REGISTERED', label: '✨ Novo Assinante Cadastrado / Verificado' },
+                    { key: 'PLAN_CHANGED', label: '💳 Alteração de Plano ou Retenção' }
+                  ].map(ev => {
+                    const isChecked = (webhookConfig.events || []).includes(ev.key as any);
+                    return (
+                      <div
+                        key={ev.key}
+                        onClick={() => handleToggleWebhookEvent(ev.key as any)}
+                        className={`cursor-pointer p-2.5 rounded-xl border flex items-center space-x-2 transition-all ${
+                          isChecked
+                            ? 'bg-blue-50 border-blue-500 text-blue-950 font-bold'
+                            : 'bg-slate-50 border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${isChecked ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
+                          {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <span className="text-xs">{ev.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Test Webhook Section */}
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-xl space-y-3 border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-xs text-cyan-300 flex items-center space-x-1.5">
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Testar Envio de Webhook Agora</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400">Envia um payload de teste para a URL cadastrada</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleTestWebhook}
+                    disabled={testingWebhook}
+                    className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-1.5 rounded-lg transition-all text-xs flex items-center space-x-1.5 shadow-sm"
+                  >
+                    {testingWebhook ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                    <span>{testingWebhook ? 'Enviando...' : 'Disparar Teste'}</span>
+                  </button>
+                </div>
+
+                {testResult && (
+                  <div className={`p-3 rounded-lg text-xs font-mono border ${testResult.success ? 'bg-emerald-950/80 border-emerald-600 text-emerald-200' : 'bg-red-950/80 border-red-600 text-red-200'}`}>
+                    <p className="font-bold flex items-center space-x-1.5">
+                      <span>{testResult.success ? '✅ SUCESSO' : '⚠️ RESPOSTA DO SERVIDOR'}</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-[10px]">HTTP {testResult.statusCode}</span>
+                    </p>
+                    <p className="text-[11px] mt-1">{testResult.message}</p>
+                  </div>
+                )}
+
+                {/* Webhook Logs History */}
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5 tracking-wider">Histórico de Disparos de Webhook:</span>
+                  <div className="bg-slate-950 rounded-lg p-2 max-h-32 overflow-y-auto space-y-1 text-[10px] font-mono border border-slate-800">
+                    {webhookLogs.length === 0 ? (
+                      <p className="text-slate-500 p-2 text-center">Nenhum evento de webhook registrado ainda.</p>
+                    ) : (
+                      webhookLogs.map(log => (
+                        <div key={log.id} className="flex items-center justify-between border-b border-slate-800/60 pb-1 pt-1">
+                          <div className="flex items-center space-x-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${log.status === 'SUCCESS' ? 'bg-emerald-900 text-emerald-300' : 'bg-red-900 text-red-300'}`}>
+                              {log.responseCode} {log.status}
+                            </span>
+                            <span className="text-slate-200 font-bold">{log.event}</span>
+                          </div>
+                          <span className="text-slate-500">{log.timestamp}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -492,10 +741,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {saveSuccess ? (
                 <>
                   <Check className="w-5 h-5 text-[#FFE600]" />
-                  <span>Configurações & Tom de Voz Salvos com Sucesso!</span>
+                  <span>Configurações Salvas com Sucesso!</span>
                 </>
               ) : (
-                <span>Salvar Configurações de Afiliado, Voz & WhatsApp</span>
+                <span>Salvar Configurações de Afiliado, Voz, Webhooks & WhatsApp</span>
               )}
             </button>
           </div>

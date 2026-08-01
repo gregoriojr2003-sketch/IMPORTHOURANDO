@@ -50,6 +50,7 @@ export default function App() {
     name: string;
     email: string;
     role: 'ADMIN' | 'SUBSCRIBER';
+    actualRole?: 'ADMIN' | 'SUBSCRIBER';
     subscriber?: Subscriber;
   } | null>(() => {
     try {

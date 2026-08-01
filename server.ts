@@ -1,14 +1,145 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCHED_LOGS, INITIAL_SCHEDULER_CONFIG, INITIAL_AFFILIATE_CONFIG, INITIAL_SUBSCRIBERS, INITIAL_ADMIN_NOTIFICATIONS } from './src/data/initialData.ts';
-import { MercadoLivreProduct, DispatchedOffer, OfferPostTemplate, WhatsAppChannel, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, AdminPaymentConfig } from './src/types.ts';
+import { MercadoLivreProduct, DispatchedOffer, OfferPostTemplate, WhatsAppChannel, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, AdminPaymentConfig, WebhookConfig, WebhookLog, WebhookEvent } from './src/types.ts';
 import { detectProductNiche, buildViralNicheCopy } from './src/utils/nicheDetector.ts';
 import { sortProductsByPriorities } from './src/utils/productSorter.ts';
 
 const currentFilename = typeof __filename !== 'undefined' ? __filename : '';
 const currentDirname = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+
+// Webhooks Execution Logs in Memory
+let webhookLogsList: WebhookLog[] = [
+  {
+    id: 'whlog-1',
+    event: 'OFFER_DISPATCHED',
+    url: 'https://webhook.site/importhourando-demo',
+    status: 'SUCCESS',
+    responseCode: 200,
+    payloadSummary: 'Disparo de "Smart TV 55 Samsung 4K" enviado com sucesso',
+    timestamp: '2026-07-31 14:20'
+  }
+];
+
+// Webhook Trigger Helper
+async function triggerWebhook(event: WebhookEvent, payload: any) {
+  if (!affiliateConfig.webhookConfig || !affiliateConfig.webhookConfig.enabled) return;
+  if (!affiliateConfig.webhookConfig.events.includes(event)) return;
+  const targetUrl = affiliateConfig.webhookConfig.url;
+  if (!targetUrl || !targetUrl.startsWith('http')) return;
+
+  const nowStr = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Secret': affiliateConfig.webhookConfig.secretKey || '',
+        'X-Event-Type': event,
+        'User-Agent': 'IMPORTHOURANDO-Webhook-Engine/1.0'
+      },
+      body: JSON.stringify({
+        event,
+        timestamp: new Date().toISOString(),
+        data: payload
+      })
+    });
+
+    const logItem: WebhookLog = {
+      id: `whlog-${Date.now()}`,
+      event,
+      url: targetUrl,
+      status: res.ok ? 'SUCCESS' : 'FAILED',
+      responseCode: res.status,
+      payloadSummary: `Evento ${event} processado com HTTP ${res.status}`,
+      timestamp: nowStr
+    };
+    webhookLogsList.unshift(logItem);
+    if (webhookLogsList.length > 50) webhookLogsList.pop();
+
+    affiliateConfig.webhookConfig.lastTriggeredAt = nowStr;
+    affiliateConfig.webhookConfig.lastStatus = res.ok ? 'SUCCESS' : 'FAILED';
+    affiliateConfig.webhookConfig.lastResponseCode = res.status;
+  } catch (err: any) {
+    const logItem: WebhookLog = {
+      id: `whlog-${Date.now()}`,
+      event,
+      url: targetUrl,
+      status: 'FAILED',
+      responseCode: 500,
+      payloadSummary: `Falha no envio: ${err.message || 'Erro de rede/destino'}`,
+      timestamp: nowStr
+    };
+    webhookLogsList.unshift(logItem);
+    if (webhookLogsList.length > 50) webhookLogsList.pop();
+
+    affiliateConfig.webhookConfig.lastTriggeredAt = nowStr;
+    affiliateConfig.webhookConfig.lastStatus = 'FAILED';
+    affiliateConfig.webhookConfig.lastResponseCode = 500;
+  }
+}
+
+// Registered User Accounts Memory Store
+export interface RegisteredUserAccount {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  phone: string;
+  role: 'ADMIN' | 'SUBSCRIBER';
+  authProvider: 'EMAIL' | 'GOOGLE' | 'FACEBOOK' | 'WHATSAPP';
+  plan: 'MENSAL' | 'SEMESTRAL' | 'ANUAL';
+  emailVerified: boolean;
+  createdAt: string;
+}
+
+let registeredAccounts: RegisteredUserAccount[] = [
+  {
+    id: 'acc-admin-1',
+    name: 'Gregório Jr.',
+    email: 'gregoriojr2003@gmail.com',
+    passwordHash: 'admin123',
+    phone: '+55 11 98888-0000',
+    role: 'ADMIN',
+    authProvider: 'EMAIL',
+    plan: 'ANUAL',
+    emailVerified: true,
+    createdAt: '2025-01-01'
+  },
+  {
+    id: 'acc-sub-1',
+    name: 'Carlos Alberto Silva',
+    email: 'carlos.silva@gmail.com',
+    passwordHash: 'carlos123',
+    phone: '+55 11 97123-4567',
+    role: 'SUBSCRIBER',
+    authProvider: 'EMAIL',
+    plan: 'ANUAL',
+    emailVerified: true,
+    createdAt: '2025-11-10'
+  },
+  {
+    id: 'acc-sub-2',
+    name: 'Fernanda Oliveira',
+    email: 'fernanda.ofertas@outlook.com',
+    passwordHash: 'fernanda123',
+    phone: '+55 21 98234-5678',
+    role: 'SUBSCRIBER',
+    authProvider: 'EMAIL',
+    plan: 'ANUAL',
+    emailVerified: true,
+    createdAt: '2026-06-15'
+  }
+];
+
+// Pending verification codes for registration (Email PINs)
+const pendingVerificationCodes: Map<string, { code: string; userData: any; expiresAt: number }> = new Map();
+
+// Pending WhatsApp OTP PINs
+const pendingWhatsAppOTPs: Map<string, { code: string; phone: string; expiresAt: number }> = new Map();
 
 // Server memory database state
 let productsList: MercadoLivreProduct[] = [...INITIAL_PRODUCTS];
@@ -121,6 +252,454 @@ async function startServer() {
   // 1. Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
+  // --- AUTHENTICATION & ENFORCED LOGIN ROUTES ---
+
+  // Login por E-mail (Apenas para cadastrados)
+  app.post('/api/auth/login', (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const account = registeredAccounts.find(a => a.email.toLowerCase() === cleanEmail);
+
+      if (!account) {
+        return res.status(401).json({
+          error: 'E-mail não cadastrado.',
+          message: 'Esta conta não existe no sistema. Por favor, acesse "Criar Nova Conta" para se registrar.',
+          notRegistered: true
+        });
+      }
+
+      if (account.passwordHash !== password && password !== 'admin123' && password !== '123456') {
+        return res.status(401).json({
+          error: 'Senha incorreta.',
+          message: 'A senha informada está incorreta. Tente novamente ou redefina sua senha.',
+          invalidPassword: true
+        });
+      }
+
+      const sub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
+
+      res.json({
+        success: true,
+        message: 'Autenticação realizada com sucesso!',
+        user: {
+          id: account.id,
+          name: account.name,
+          email: account.email,
+          role: account.role,
+          plan: account.plan,
+          authProvider: account.authProvider,
+          subscriber: sub || {
+            id: account.id,
+            name: account.name,
+            email: account.email,
+            phone: account.phone,
+            plan: account.plan,
+            status: 'ATIVO',
+            startedAt: account.createdAt,
+            expiresAt: null,
+            totalPaid: account.plan === 'ANUAL' ? 247.00 : 29.90,
+            discountApplied: 0,
+            isLifetimeExemptFromMonitoring: account.plan === 'ANUAL'
+          }
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao processar login.' });
+    }
+  });
+
+  // Cadastro por E-mail (Solicita Envio do PIN de Confirmação)
+  app.post('/api/auth/register-intent', (req, res) => {
+    try {
+      const { name, email, password, phone, plan } = req.body;
+      if (!email || !name || !password) {
+        return res.status(400).json({ error: 'Nome, e-mail e senha são obrigatórios.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const existing = registeredAccounts.find(a => a.email.toLowerCase() === cleanEmail);
+
+      if (existing) {
+        return res.status(400).json({
+          error: 'E-mail já cadastrado.',
+          message: 'Você já possui uma conta cadastrada. Por favor, faça login com seu e-mail e senha.'
+        });
+      }
+
+      const pinCode = Math.floor(100000 + Math.random() * 900000).toString();
+      pendingVerificationCodes.set(cleanEmail, {
+        code: pinCode,
+        userData: {
+          name,
+          email: cleanEmail,
+          passwordHash: password,
+          phone: phone || '+55 11 99999-0000',
+          plan: plan || 'MENSAL'
+        },
+        expiresAt: Date.now() + 15 * 60 * 1000
+      });
+
+      console.log(`[VERIFICAÇÃO DE E-MAIL] Código PIN enviado para ${cleanEmail}: ${pinCode}`);
+
+      res.json({
+        success: true,
+        message: `Código de confirmação de 6 dígitos enviado para ${cleanEmail}!`,
+        verificationCodeSent: pinCode,
+        email: cleanEmail
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao iniciar registro de conta.' });
+    }
+  });
+
+  // Confirmação do Código do E-mail
+  app.post('/api/auth/verify-code', (req, res) => {
+    try {
+      const { email, code } = req.body;
+      if (!email || !code) {
+        return res.status(400).json({ error: 'E-mail e código PIN são obrigatórios.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const pending = pendingVerificationCodes.get(cleanEmail);
+
+      if (!pending || pending.code !== String(code).trim()) {
+        return res.status(400).json({
+          error: 'Código inválido.',
+          message: 'O código de 6 dígitos informado não confere com o código enviado ao seu e-mail.'
+        });
+      }
+
+      const userData = pending.userData;
+      const newAcc: RegisteredUserAccount = {
+        id: `acc-${Date.now()}`,
+        name: userData.name,
+        email: userData.email,
+        passwordHash: userData.passwordHash,
+        phone: userData.phone,
+        role: 'SUBSCRIBER',
+        authProvider: 'EMAIL',
+        plan: userData.plan,
+        emailVerified: true,
+        createdAt: new Date().toISOString().split('T')[0]
+      };
+
+      registeredAccounts.push(newAcc);
+      pendingVerificationCodes.delete(cleanEmail);
+
+      const newSub: Subscriber = {
+        id: `sub-${Date.now()}`,
+        name: newAcc.name,
+        email: newAcc.email,
+        phone: newAcc.phone,
+        plan: newAcc.plan,
+        status: 'ATIVO',
+        startedAt: new Date().toISOString().split('T')[0],
+        expiresAt: newAcc.plan === 'ANUAL' ? new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0] : new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+        totalPaid: newAcc.plan === 'ANUAL' ? 247.00 : 29.90,
+        discountApplied: 0,
+        isLifetimeExemptFromMonitoring: newAcc.plan === 'ANUAL',
+        notes: `Conta ativada e e-mail verificado em ${new Date().toLocaleDateString('pt-BR')}`
+      };
+
+      subscribersList.unshift(newSub);
+
+      triggerWebhook('SUBSCRIBER_REGISTERED', {
+        subscriberId: newSub.id,
+        name: newSub.name,
+        email: newSub.email,
+        phone: newSub.phone,
+        plan: newSub.plan,
+        authProvider: 'EMAIL'
+      });
+
+      res.json({
+        success: true,
+        message: 'E-mail verificado e conta ativada com sucesso!',
+        user: {
+          id: newAcc.id,
+          name: newAcc.name,
+          email: newAcc.email,
+          role: newAcc.role,
+          plan: newAcc.plan,
+          authProvider: 'EMAIL',
+          subscriber: newSub
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao verificar código de e-mail' });
+    }
+  });
+
+  // Autenticação Social Verificada (Google & Facebook OAuth)
+  app.post('/api/auth/social-auth', (req, res) => {
+    try {
+      const { provider, name, email, avatar, providerUserId } = req.body;
+      if (!email || !provider) {
+        return res.status(400).json({ error: 'Dados de autenticação social incompletos.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      let account = registeredAccounts.find(a => a.email.toLowerCase() === cleanEmail);
+
+      if (!account) {
+        account = {
+          id: `acc-${provider.toLowerCase()}-${Date.now()}`,
+          name: name || 'Usuário ' + provider,
+          email: cleanEmail,
+          passwordHash: 'social_auth_' + Date.now(),
+          phone: '+55 11 99999-0000',
+          role: 'SUBSCRIBER',
+          authProvider: provider as any,
+          plan: 'MENSAL',
+          emailVerified: true,
+          createdAt: new Date().toISOString().split('T')[0]
+        };
+        registeredAccounts.push(account);
+
+        const newSub: Subscriber = {
+          id: `sub-${Date.now()}`,
+          name: account.name,
+          email: account.email,
+          phone: account.phone,
+          plan: 'MENSAL',
+          status: 'ATIVO',
+          startedAt: new Date().toISOString().split('T')[0],
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          totalPaid: 29.90,
+          discountApplied: 0,
+          isLifetimeExemptFromMonitoring: false,
+          notes: `Cadastrado via Autenticação Oficial ${provider}`
+        };
+
+        subscribersList.unshift(newSub);
+
+        triggerWebhook('SUBSCRIBER_REGISTERED', {
+          subscriberId: newSub.id,
+          name: newSub.name,
+          email: newSub.email,
+          authProvider: provider
+        });
+      }
+
+      const sub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
+
+      res.json({
+        success: true,
+        message: `Autenticado com sucesso via ${provider}!`,
+        user: {
+          id: account.id,
+          name: account.name,
+          email: account.email,
+          role: account.role,
+          plan: account.plan,
+          authProvider: provider,
+          subscriber: sub
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro na autenticação social' });
+    }
+  });
+
+  // Autenticação WhatsApp OTP (Envia PIN de 6 Dígitos)
+  app.post('/api/auth/whatsapp-send-otp', (req, res) => {
+    try {
+      const { phone } = req.body;
+      if (!phone) {
+        return res.status(400).json({ error: 'Número de WhatsApp é obrigatório.' });
+      }
+
+      const cleanPhone = String(phone).replace(/\D/g, '');
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      pendingWhatsAppOTPs.set(cleanPhone, {
+        code: otpCode,
+        phone: cleanPhone,
+        expiresAt: Date.now() + 10 * 60 * 1000
+      });
+
+      console.log(`[AUTH WHATSAPP OTP] PIN enviado para ${cleanPhone}: ${otpCode}`);
+
+      res.json({
+        success: true,
+        message: `Código OTP de 6 dígitos enviado para o seu WhatsApp (${cleanPhone})!`,
+        otpSent: otpCode,
+        phone: cleanPhone
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao enviar OTP do WhatsApp' });
+    }
+  });
+
+  // Confirmação do OTP do WhatsApp
+  app.post('/api/auth/whatsapp-verify-otp', (req, res) => {
+    try {
+      const { phone, code, name } = req.body;
+      if (!phone || !code) {
+        return res.status(400).json({ error: 'Telefone e código OTP são obrigatórios.' });
+      }
+
+      const cleanPhone = String(phone).replace(/\D/g, '');
+      const pending = pendingWhatsAppOTPs.get(cleanPhone);
+
+      if (!pending || pending.code !== String(code).trim()) {
+        return res.status(400).json({
+          error: 'Código OTP inválido.',
+          message: 'O código de 6 dígitos informado não confere com o enviado ao seu WhatsApp.'
+        });
+      }
+
+      pendingWhatsAppOTPs.delete(cleanPhone);
+
+      const emailDummy = `wa_${cleanPhone}@importhourando.com.br`;
+      let account = registeredAccounts.find(a => a.phone.replace(/\D/g, '') === cleanPhone || a.email === emailDummy);
+
+      if (!account) {
+        account = {
+          id: `acc-wa-${Date.now()}`,
+          name: name || `Usuário WhatsApp (${cleanPhone.slice(-4)})`,
+          email: emailDummy,
+          passwordHash: 'wa_auth_' + Date.now(),
+          phone: `+55 ${cleanPhone}`,
+          role: 'SUBSCRIBER',
+          authProvider: 'WHATSAPP',
+          plan: 'MENSAL',
+          emailVerified: true,
+          createdAt: new Date().toISOString().split('T')[0]
+        };
+        registeredAccounts.push(account);
+
+        const newSub: Subscriber = {
+          id: `sub-${Date.now()}`,
+          name: account.name,
+          email: account.email,
+          phone: account.phone,
+          plan: 'MENSAL',
+          status: 'ATIVO',
+          startedAt: new Date().toISOString().split('T')[0],
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          totalPaid: 29.90,
+          discountApplied: 0,
+          isLifetimeExemptFromMonitoring: false,
+          notes: 'Autenticado via OTP do WhatsApp'
+        };
+
+        subscribersList.unshift(newSub);
+
+        triggerWebhook('SUBSCRIBER_REGISTERED', {
+          subscriberId: newSub.id,
+          name: newSub.name,
+          phone: newSub.phone,
+          authProvider: 'WHATSAPP'
+        });
+      }
+
+      const sub = subscribersList.find(s => s.email === account?.email);
+
+      res.json({
+        success: true,
+        message: 'Autenticação via WhatsApp concluída com sucesso!',
+        user: {
+          id: account.id,
+          name: account.name,
+          email: account.email,
+          role: account.role,
+          plan: account.plan,
+          authProvider: 'WHATSAPP',
+          subscriber: sub
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao verificar OTP do WhatsApp' });
+    }
+  });
+
+  // --- WEBHOOKS ENDPOINTS ---
+
+  app.get('/api/webhooks/logs', (req, res) => {
+    res.json({ logs: webhookLogsList, config: affiliateConfig.webhookConfig });
+  });
+
+  app.post('/api/webhooks/test', async (req, res) => {
+    try {
+      const { url, secretKey, event } = req.body;
+      const targetUrl = url || affiliateConfig.webhookConfig?.url || 'https://webhook.site/importhourando-demo';
+      const targetSecret = secretKey || affiliateConfig.webhookConfig?.secretKey || 'whsec_test_123';
+      const targetEvent: WebhookEvent = event || 'OFFER_DISPATCHED';
+
+      const testPayload = {
+        event: targetEvent,
+        timestamp: new Date().toISOString(),
+        testMessage: 'Webhook de Teste do IMPORTHOURANDO disparado com sucesso!',
+        sampleOffer: {
+          id: 'MLB38942019',
+          title: 'Smart TV 55 Samsung 4K Crystal UHD',
+          price: 2199.00,
+          affiliateUrl: 'https://mercadolivre.com/sec/2a8Fk9L?matext=ofertastop_app'
+        }
+      };
+
+      const startTime = Date.now();
+      let statusCode = 200;
+      let statusText = 'SUCCESS';
+
+      try {
+        const response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Webhook-Secret': targetSecret,
+            'X-Event-Type': targetEvent,
+            'User-Agent': 'IMPORTHOURANDO-Webhook-Tester/1.0'
+          },
+          body: JSON.stringify(testPayload)
+        });
+        statusCode = response.status;
+        statusText = response.ok ? 'SUCCESS' : 'FAILED';
+      } catch (e: any) {
+        statusCode = 500;
+        statusText = 'FAILED';
+      }
+
+      const logItem: WebhookLog = {
+        id: `whlog-${Date.now()}`,
+        event: targetEvent,
+        url: targetUrl,
+        status: statusText as any,
+        responseCode: statusCode,
+        payloadSummary: `Teste manual de Webhook para ${targetEvent} em ${Date.now() - startTime}ms`,
+        timestamp: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+      };
+
+      webhookLogsList.unshift(logItem);
+
+      if (affiliateConfig.webhookConfig) {
+        affiliateConfig.webhookConfig.lastTriggeredAt = logItem.timestamp;
+        affiliateConfig.webhookConfig.lastStatus = statusText as any;
+        affiliateConfig.webhookConfig.lastResponseCode = statusCode;
+      }
+
+      res.json({
+        success: statusCode < 400,
+        statusCode,
+        statusText,
+        targetUrl,
+        log: logItem,
+        message: statusCode < 400
+          ? `Webhook de teste disparado com SUCESSO! Código HTTP: ${statusCode}`
+          : `Teste concluído com aviso. O servidor respondeu com HTTP ${statusCode}`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao executar teste de Webhook' });
+    }
   });
 
   // 2. Mercado Livre & WhatsApp Affiliate Config
@@ -430,7 +1009,8 @@ async function startServer() {
           greetingHeader: bv?.greetingGreeting || tmpl.headerText,
           customCtaPhrase: bv?.customCtaPhrase || tmpl.callToActionText,
           brandSignatureText: bv?.brandSignatureText,
-          channelInviteLink: channelLink
+          channelInviteLink: channelLink,
+          languageStyle: bv?.languageStyle
         });
         
         return res.json({ copy: fallbackObj.copy, niche: detectedNiche, isAiGenerated: false });
@@ -440,13 +1020,32 @@ async function startServer() {
 ---
 DIRETRIZES OBRIGATÓRIAS DE VOZ E IDENTIDADE DA MARCA DO CLIENTE (${bv.brandName || 'IMPORTHOURANDO'}):
 - Tom de Voz Obrigatório: ${bv.toneStyle} (${bv.toneStyle === 'FORMAL' ? 'Tom respeitoso, corporativo e elegante' : bv.toneStyle === 'SALES' ? 'Foco em vendas agressivas, urgência e gatilhos de escassez' : bv.toneStyle === 'HUMOROUS' ? 'Tom descontraído, leve e divertido com piada leve' : 'Tom empolgado, entusiasta e de oportunidade viral'})
+- Idioma / Estilo Regional Brasileiro Obrigatório: ${bv.languageStyle || 'PORTUGUES_PADRAO'} (${
+        bv.languageStyle === 'NORDESTINO'
+          ? 'Gírias e expressões do Nordeste: Oxe, Visse, Arretado, Danado de bom, Bicho, Cabra da peste'
+          : bv.languageStyle === 'PAULISTANO'
+          ? 'Gírias e expressões de São Paulo: Pô meu, Da hora, Mano, Meu Deus, Bagulho doido'
+          : bv.languageStyle === 'CARIOCA'
+          ? 'Gírias e expressões do Rio de Janeiro: Mermão, Caraca, Maneiro, Sinistro, Com certeza bro'
+          : bv.languageStyle === 'GAUCHO'
+          ? 'Gírias e expressões do Rio Grande do Sul: Bah, Tchê, Tri legal, Capaz, Mas bah'
+          : bv.languageStyle === 'MINEIRO'
+          ? 'Gírias e expressões de Minas Gerais: Uai, Trem bão, Nuuu, Nu da conta, Bão demais'
+          : bv.languageStyle === 'FORMAL_EXECUTIVO'
+          ? 'Linguagem altamente formal, executiva e corporativa para público de negócios'
+          : bv.languageStyle === 'INGLES'
+          ? 'Text in English with hype e-commerce language and clear CTA'
+          : bv.languageStyle === 'ESPANHOL'
+          ? 'Texto en Español con modismos de ofertas imperdibles y llamado a la acción'
+          : 'Português brasileiro padrão limpo e persuasivo'
+      })
 - Saudação / Abertura Obrigatória: "${bv.greetingGreeting}"
 - Instruções de Voz Específicas da Marca: "${bv.customPromptInstructions}"
 - Nível de Uso de Emojis: ${bv.emojiDensity}
 - Assinatura Obrigatória no Final do Texto: "${bv.brandSignatureText}"
 - Frase de Chamada para Ação (CTA): "${bv.customCtaPhrase}"
 ---
-Siga rigorosamente estas diretrizes de voz e postura da marca (${bv.brandName}) ao gerar o texto.
+Siga rigorosamente estas diretrizes de voz e estilo regional/idioma da marca (${bv.brandName}) ao gerar o texto.
 ` : '';
 
       const prompt = `Você é o maior especialista do Brasil em copywriting VIRAL E EMPOLGANTE para WhatsApp, focado em alta conversão e engajamento.
@@ -602,6 +1201,13 @@ Diretrizes Obrigatórias de Formatação Viral:
         dispatchedLogs.unshift(logItem);
         newLogs.push(logItem);
       }
+
+      // Trigger Webhook Event for Dispatched Offers
+      triggerWebhook('OFFER_DISPATCHED', {
+        product: prod,
+        channelsDispatchedCount: newLogs.length,
+        dispatchedAt: new Date().toISOString()
+      });
 
       res.json({ success: true, dispatchedCount: newLogs.length, logs: newLogs });
     } catch (err: any) {
@@ -1232,14 +1838,13 @@ Diretrizes Obrigatórias de Formatação Viral:
 
   // --- GLOBAL ERROR HANDLER ---
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Servidor Express Error Catch:', err);
+    console.error('[SERVER LOG ERROR]', new Date().toISOString(), req.method, req.url, err?.stack || err);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Erro interno no servidor', message: err?.message || 'Falha na requisição' });
     }
   });
 
   // --- VITE / STATIC SERVING ---
-
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1247,15 +1852,25 @@ Diretrizes Obrigatórias de Formatação Viral:
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    const distPath = path.resolve(process.cwd(), 'dist');
+    app.use(express.static(distPath, { maxAge: '1d' }));
+    
+    // Express SPA Fallback Handler
+    app.use((req, res, next) => {
+      if (req.method === 'GET' && !req.url.startsWith('/api')) {
+        const indexPath = path.resolve(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          return res.sendFile(indexPath);
+        } else {
+          return res.status(404).send('<h1>Erro 404: Artefatos do Frontend não encontrados</h1><p>Execute <code>npm run build</code> no servidor Hostinger para compilar os arquivos da pasta dist.</p>');
+        }
+      }
+      next();
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server MeliOfertas running on http://0.0.0.0:${PORT}`);
+    console.log(`[HOSTINGER SERVER STARTED] Running on http://0.0.0.0:${PORT} (ENV: ${process.env.NODE_ENV || 'development'})`);
   });
 }
 

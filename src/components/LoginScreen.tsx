@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check } from 'lucide-react';
+import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Smartphone, Send, RefreshCw } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { Subscriber } from '../types';
 
@@ -8,7 +8,7 @@ interface LoginScreenProps {
   onLoginSuccess: (user: { name: string; email: string; role: 'ADMIN' | 'SUBSCRIBER'; subscriber?: Subscriber }) => void;
 }
 
-type AuthMode = 'LOGIN' | 'REGISTER' | 'RECOVER';
+type AuthMode = 'LOGIN' | 'REGISTER' | 'RECOVER' | 'WHATSAPP_OTP' | 'VERIFY_PIN';
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   subscribers,
@@ -27,6 +27,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [regPlan, setRegPlan] = useState<'MENSAL' | 'SEMESTRAL' | 'ANUAL'>('MENSAL');
 
+  // Verification PIN state
+  const [verificationCode, setVerificationCode] = useState('');
+  const [pendingRegistrationEmail, setPendingRegistrationEmail] = useState('');
+
+  // WhatsApp OTP state
+  const [waPhone, setWaPhone] = useState('');
+  const [waCode, setWaCode] = useState('');
+  const [waCodeSent, setWaCodeSent] = useState(false);
+
   // Recovery form state
   const [recoverEmail, setRecoverEmail] = useState('');
   const [recoverSuccess, setRecoverSuccess] = useState(false);
@@ -42,17 +51,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setError('');
     setSuccessMsg('');
     setRecoverSuccess(false);
+    setWaCodeSent(false);
   };
 
-  // Handle Login submission
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  // Handle Login submission via real API
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
 
     const cleanEmail = loginEmail.trim().toLowerCase();
     if (!cleanEmail) {
-      setError('Por favor, informe seu e-mail de acesso ou login.');
+      setError('Por favor, informe seu e-mail cadastrado.');
       return;
     }
 
@@ -63,67 +73,35 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      // 1. Admin Detection (Private backend email match)
-      if (cleanEmail === 'gregoriojr2003@gmail.com' || cleanEmail === 'admin@importhourando.com.br' || cleanEmail === 'admin') {
-        const adminSub = subscribers.find(s => s.email.toLowerCase() === 'gregoriojr2003@gmail.com') || subscribers[0];
-        onLoginSuccess({
-          name: adminSub?.name || 'Administrador (Proprietário)',
-          email: cleanEmail,
-          role: 'ADMIN',
-          subscriber: adminSub
-        });
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password: loginPassword })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || 'Falha na autenticação. Verifique se possui cadastro ativo!');
         setIsLoading(false);
         return;
       }
 
-      // 2. Existing Subscriber Detection
-      const matchedSub = subscribers.find(s => s.email.toLowerCase() === cleanEmail);
-      if (matchedSub) {
-        const isAdmin = matchedSub.email.toLowerCase() === 'gregoriojr2003@gmail.com';
-        onLoginSuccess({
-          name: matchedSub.name,
-          email: matchedSub.email,
-          role: isAdmin ? 'ADMIN' : 'SUBSCRIBER',
-          subscriber: matchedSub
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      // 3. New User Login / Flexible Credentials
-      if (cleanEmail.includes('@') && cleanEmail.length > 5) {
-        const tempSub: Subscriber = {
-          id: `sub-${Date.now()}`,
-          name: cleanEmail.split('@')[0],
-          email: cleanEmail,
-          phone: '+55 11 99999-0000',
-          plan: 'MENSAL',
-          status: 'PENDENTE', // Require plan activation
-          startedAt: new Date().toISOString().split('T')[0],
-          expiresAt: null,
-          totalPaid: 0,
-          discountApplied: 0,
-          isLifetimeExemptFromMonitoring: false,
-          notes: 'Cadastro via formulário de entrada'
-        };
-
-        onLoginSuccess({
-          name: tempSub.name,
-          email: tempSub.email,
-          role: 'SUBSCRIBER',
-          subscriber: tempSub
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      setError('E-mail ou login não encontrado. Verifique os dados ou crie uma nova conta.');
+      onLoginSuccess({
+        name: data.user.name,
+        email: data.user.email,
+        role: data.role,
+        subscriber: data.subscriber
+      });
+    } catch (err) {
+      setError('Erro de conexão ao servidor de autenticação. Tente novamente.');
+    } finally {
       setIsLoading(false);
-    }, 400);
+    }
   };
 
-  // Handle Account Registration
+  // Step 1 Registration: Request Verification PIN
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -149,90 +127,189 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setIsLoading(true);
 
     try {
-      const newSub: Subscriber = {
-        id: `sub-reg-${Date.now()}`,
-        name: cleanName,
-        email: cleanEmail,
-        phone: cleanPhone || '+55 (11) 99999-0000',
-        plan: regPlan,
-        status: 'PENDENTE', // Open registration: status starts as PENDENTE until plan is chosen/activated
-        startedAt: new Date().toISOString().split('T')[0],
-        expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
-        totalPaid: regPlan === 'ANUAL' ? 249.90 : (regPlan === 'SEMESTRAL' ? 149.90 : 29.90),
-        discountApplied: regPlan === 'ANUAL' ? 30 : (regPlan === 'SEMESTRAL' ? 15 : 0),
-        isLifetimeExemptFromMonitoring: regPlan === 'ANUAL',
-        notes: 'Nova conta cadastrada na plataforma'
-      };
-
-      // Persist to backend server
-      await fetch('/api/admin/subscribers', {
+      const res = await fetch('/api/auth/register-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSub)
-      }).catch(() => {});
+        body: JSON.stringify({
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhone || '+55 (11) 99999-0000',
+          password: regPassword,
+          plan: regPlan
+        })
+      });
 
-      // Log the user in
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || 'Erro ao iniciar cadastro.');
+        setIsLoading(false);
+        return;
+      }
+
+      setPendingRegistrationEmail(cleanEmail);
+      setSuccessMsg(`Código de verificação enviado para ${cleanEmail}! PIN demonstrativo: ${data.pinCode}`);
+      setMode('VERIFY_PIN');
+    } catch (err) {
+      setError('Erro ao comunicar com servidor. Tente novamente.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Step 2 Registration: Confirm PIN Code
+  const handleVerifyPinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!verificationCode || verificationCode.length < 4) {
+      setError('Informe o código de verificação recebido por e-mail.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: pendingRegistrationEmail,
+          code: verificationCode
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || 'Código de verificação inválido.');
+        setIsLoading(false);
+        return;
+      }
+
       onLoginSuccess({
-        name: newSub.name,
-        email: newSub.email,
-        role: 'SUBSCRIBER',
-        subscriber: newSub
+        name: data.user.name,
+        email: data.user.email,
+        role: data.role,
+        subscriber: data.subscriber
       });
     } catch (err) {
-      setError('Erro ao criar cadastro. Tente novamente.');
+      setError('Erro ao validar código. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
   };
 
   // Social SSO Handler (Google & Facebook)
-  const handleSocialAuth = (provider: 'Google' | 'Facebook') => {
+  const handleSocialAuth = async (provider: 'Google' | 'Facebook') => {
     setIsLoading(true);
     setError('');
     setSuccessMsg('');
 
-    setTimeout(() => {
-      // Simulate Google or Facebook OAuth returning user profile
-      const providerEmail = provider === 'Google' ? 'usuario.google@gmail.com' : 'usuario.facebook@hotmail.com';
-      const providerName = provider === 'Google' ? 'Usuário Google' : 'Usuário Facebook';
+    try {
+      const res = await fetch('/api/auth/social-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider })
+      });
 
-      // Check if user already exists
-      const existingSub = subscribers.find(s => s.email.toLowerCase() === providerEmail.toLowerCase());
+      const data = await res.json();
 
-      if (existingSub) {
-        onLoginSuccess({
-          name: existingSub.name,
-          email: existingSub.email,
-          role: existingSub.email === 'gregoriojr2003@gmail.com' ? 'ADMIN' : 'SUBSCRIBER',
-          subscriber: existingSub
-        });
-      } else {
-        // Create new subscriber via Social Login
-        const newSocialSub: Subscriber = {
-          id: `sub-social-${Date.now()}`,
-          name: providerName,
-          email: providerEmail,
-          phone: '+55 11 98888-7777',
-          plan: 'MENSAL',
-          status: 'PENDENTE', // Must choose/activate plan for full features
-          startedAt: new Date().toISOString().split('T')[0],
-          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          totalPaid: 29.90,
-          discountApplied: 0,
-          isLifetimeExemptFromMonitoring: false,
-          notes: `Cadastro via ${provider}`
-        };
-
-        onLoginSuccess({
-          name: newSocialSub.name,
-          email: newSocialSub.email,
-          role: 'SUBSCRIBER',
-          subscriber: newSocialSub
-        });
+      if (!res.ok) {
+        setError(data.message || 'Erro na autenticação social.');
+        setIsLoading(false);
+        return;
       }
+
+      onLoginSuccess({
+        name: data.user.name,
+        email: data.user.email,
+        role: data.role,
+        subscriber: data.subscriber
+      });
+    } catch (err) {
+      setError('Erro de conexão durante autenticação social.');
+    } finally {
       setIsLoading(false);
-    }, 400);
+    }
   };
+
+  // WhatsApp Send OTP Code
+  const handleSendWaOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!waPhone || waPhone.length < 8) {
+      setError('Informe seu número de WhatsApp com DDD.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/whatsapp-send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: waPhone })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || 'Erro ao enviar código de WhatsApp.');
+        setIsLoading(false);
+        return;
+      }
+
+      setWaCodeSent(true);
+      setSuccessMsg(`Código SMS/WhatsApp enviado para ${data.phone}! PIN demonstrativo: ${data.otpCode}`);
+    } catch (err) {
+      setError('Erro ao solicitar código de WhatsApp.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // WhatsApp Verify OTP Code
+  const handleVerifyWaOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!waCode || waCode.length < 4) {
+      setError('Informe o código enviado para seu WhatsApp.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/whatsapp-verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: waPhone, code: waCode })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || 'Código de WhatsApp incorreto.');
+        setIsLoading(false);
+        return;
+      }
+
+      onLoginSuccess({
+        name: data.user.name,
+        email: data.user.email,
+        role: data.role,
+        subscriber: data.subscriber
+      });
+    } catch (err) {
+      setError('Erro ao validar código do WhatsApp.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRecoverSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -258,7 +335,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         
         {/* Left Branding Column */}
         <div className="md:col-span-5 bg-gradient-to-br from-[#2D3277] to-[#171946] p-8 text-white flex flex-col justify-between relative overflow-hidden">
-          {/* Subtle Background Glows */}
           <div className="absolute -top-16 -left-16 w-48 h-48 bg-[#FFE600]/15 rounded-full blur-3xl pointer-events-none"></div>
           <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -282,19 +358,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <div className="flex items-start space-x-2.5">
                 <CheckCircle2 className="w-4 h-4 text-[#FFE600] shrink-0 mt-0.5" />
                 <span className="text-xs text-slate-200">
-                  <strong>Acesso por Login & Senha:</strong> Autenticação individual e área do assinante.
+                  <strong>Área Exclusiva de Cadastrados:</strong> O e-mail de acesso exige conta previamente registrada na plataforma.
                 </span>
               </div>
               <div className="flex items-start space-x-2.5">
                 <CheckCircle2 className="w-4 h-4 text-[#FFE600] shrink-0 mt-0.5" />
                 <span className="text-xs text-slate-200">
-                  <strong>Paineis Exclusivos:</strong> Áreas separadas para Usuário Assinante e Administrador.
+                  <strong>Autenticação Multi-Canal:</strong> Entre via E-mail, Google, Facebook ou WhatsApp OTP.
                 </span>
               </div>
               <div className="flex items-start space-x-2.5">
                 <CheckCircle2 className="w-4 h-4 text-[#FFE600] shrink-0 mt-0.5" />
                 <span className="text-xs text-slate-200">
-                  <strong>Adesão por Planos:</strong> Liberação de recursos conforme a assinatura selecionada.
+                  <strong>Verificação em Duas Etapas:</strong> Confirmação por código PIN no e-mail e SMS.
                 </span>
               </div>
             </div>
@@ -303,19 +379,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           <div className="mt-8 pt-6 border-t border-white/10 text-[11px] text-slate-300">
             <div className="flex items-center space-x-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Ambiente Protegido com Criptografia SSL & Headers de Segurança</span>
+              <span>Ambiente Protegido com Autenticação Obrigatória & SSL</span>
             </div>
           </div>
         </div>
 
         {/* Right Auth Form Column */}
         <div className="md:col-span-7 p-6 sm:p-10 flex flex-col justify-between bg-white relative overflow-hidden">
-          {/* Logo background watermark on the white side */}
           <div className="absolute -bottom-12 -right-12 pointer-events-none select-none opacity-[0.07] transition-opacity flex items-center justify-center z-0">
             <AppLogo size={380} className="w-80 h-80 sm:w-96 sm:h-96 text-slate-900" />
-          </div>
-          <div className="absolute -top-16 -left-16 pointer-events-none select-none opacity-[0.04] transition-opacity flex items-center justify-center z-0">
-            <AppLogo size={260} className="w-64 h-64 text-[#2D3277]" />
           </div>
 
           <div className="relative z-10">
@@ -324,19 +396,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <div className="inline-flex items-center space-x-2 bg-slate-100 text-slate-700 font-extrabold text-[11px] px-3 py-1 rounded-full uppercase mb-2">
                 <Lock className="w-3.5 h-3.5 text-[#2D3277]" />
                 <span>
-                  {mode === 'LOGIN' && 'Acesso Seguro'}
+                  {mode === 'LOGIN' && 'Acesso para Cadastrados'}
                   {mode === 'REGISTER' && 'Cadastro de Novo Usuário'}
+                  {mode === 'VERIFY_PIN' && 'Confirmação de E-mail'}
+                  {mode === 'WHATSAPP_OTP' && 'Entrar por WhatsApp OTP'}
                   {mode === 'RECOVER' && 'Recuperação de Acesso'}
                 </span>
               </div>
               <h2 className="text-2xl font-black text-slate-900 tracking-tight">
                 {mode === 'LOGIN' && 'Entrar na Plataforma'}
                 {mode === 'REGISTER' && 'Criar Sua Conta'}
+                {mode === 'VERIFY_PIN' && 'Digite o Código PIN de E-mail'}
+                {mode === 'WHATSAPP_OTP' && 'Entrar com WhatsApp'}
                 {mode === 'RECOVER' && 'Esqueci Minha Senha'}
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                {mode === 'LOGIN' && 'Informe suas credenciais para acessar sua conta de Usuário ou Administrador.'}
-                {mode === 'REGISTER' && 'Cadastre-se gratuitamente e escolha seu plano para liberar os disparos automáticos.'}
+                {mode === 'LOGIN' && 'Área restrita para usuários com cadastro ativo. Caso seja seu primeiro acesso, crie sua conta ou use Login Social.'}
+                {mode === 'REGISTER' && 'Cadastre-se para liberar o painel do robô e disparos de ofertas.'}
+                {mode === 'VERIFY_PIN' && `Enviamos um PIN de verificação para ${pendingRegistrationEmail}.`}
+                {mode === 'WHATSAPP_OTP' && 'Receba um código de verificação direto no seu celular por mensagem de WhatsApp.'}
                 {mode === 'RECOVER' && 'Digite seu e-mail para receber as instruções de redefinição de senha.'}
               </p>
             </div>
@@ -360,12 +438,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             {mode === 'LOGIN' && (
               <div className="space-y-4">
                 {/* Social Login Options */}
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => handleSocialAuth('Google')}
                     disabled={isLoading}
-                    className="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3"
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-slate-400 bg-white text-slate-800 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2"
                   >
                     <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -373,26 +451,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                       <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                     </svg>
-                    <span>Entrar com Conta Google</span>
+                    <span>Google</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleSocialAuth('Facebook')}
                     disabled={isLoading}
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#1877F2] hover:bg-[#165EBF] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-3"
+                    className="py-2.5 px-3 rounded-xl bg-[#1877F2] hover:bg-[#165EBF] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2"
                   >
                     <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
                       <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
                     </svg>
-                    <span>Entrar com Facebook</span>
+                    <span>Facebook</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchMode('WHATSAPP_OTP')}
+                    disabled={isLoading}
+                    className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Smartphone className="w-4 h-4 shrink-0" />
+                    <span>WhatsApp</span>
                   </button>
                 </div>
 
                 <div className="relative flex py-1 items-center">
                   <div className="flex-grow border-t border-slate-200"></div>
                   <span className="flex-shrink mx-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                    Ou acesse com seu e-mail
+                    Ou acesse com e-mail cadastrado
                   </span>
                   <div className="flex-grow border-t border-slate-200"></div>
                 </div>
@@ -400,15 +488,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <form onSubmit={handleLoginSubmit} className="space-y-3.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      E-mail de Acesso ou Login:
+                      E-mail Cadastrado:
                     </label>
                     <div className="relative">
                       <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                       <input
-                        type="text"
+                        type="email"
+                        required
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
-                        placeholder="seu.email@exemplo.com (qualquer e-mail)"
+                        placeholder="seu.email@exemplo.com"
                         className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] focus:border-[#2D3277] outline-none transition-all"
                       />
                     </div>
@@ -431,6 +520,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                       <input
                         type="password"
+                        required
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
                         placeholder="••••••••"
@@ -445,11 +535,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     className="w-full py-3 rounded-xl bg-[#2D3277] hover:bg-[#1E2255] text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                   >
                     {isLoading ? (
-                      <span>Verificando credenciais...</span>
+                      <span>Autenticando conta...</span>
                     ) : (
                       <>
                         <LogIn className="w-4 h-4" />
-                        <span>Acessar Plataforma</span>
+                        <span>Acessar Conta Cadastrada</span>
                       </>
                     )}
                   </button>
@@ -462,7 +552,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       className="w-full py-2.5 rounded-xl border-2 border-[#2D3277] text-[#2D3277] hover:bg-[#2D3277] hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-2"
                     >
                       <UserPlus className="w-4 h-4" />
-                      <span>Criar Nova Conta Gratuitamente</span>
+                      <span>Criar Nova Conta com Confirmação</span>
                     </button>
                   </div>
                 </form>
@@ -472,187 +562,294 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             {/* MODE 2: REGISTER FORM */}
             {mode === 'REGISTER' && (
               <div className="space-y-3.5">
-                {/* Social Signup Options */}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleSocialAuth('Google')}
-                    disabled={isLoading}
-                    className="py-2 px-3 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                    </svg>
-                    <span>Criar com Google</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSocialAuth('Facebook')}
-                    disabled={isLoading}
-                    className="py-2 px-3 rounded-xl bg-[#1877F2] hover:bg-[#165EBF] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
-                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-                    </svg>
-                    <span>Criar com Facebook</span>
-                  </button>
-                </div>
-
-                <div className="relative flex py-0.5 items-center">
-                  <div className="flex-grow border-t border-slate-200"></div>
-                  <span className="flex-shrink mx-2 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
-                    Ou preencha com qualquer e-mail
-                  </span>
-                  <div className="flex-grow border-t border-slate-200"></div>
-                </div>
-
                 <form onSubmit={handleRegisterSubmit} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Nome Completo:
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      placeholder="Seu Nome e Sobrenome"
-                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Seu E-mail:
+                      Nome Completo:
                     </label>
                     <div className="relative">
-                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                      <input
-                        type="email"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
-                        placeholder="seu.email@exemplo.com"
-                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      WhatsApp com DDD:
-                    </label>
-                    <div className="relative">
-                      <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                      <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                       <input
                         type="text"
-                        value={regPhone}
-                        onChange={(e) => setRegPhone(e.target.value)}
-                        placeholder="(11) 99999-9999"
+                        required
+                        value={regName}
+                        onChange={(e) => setRegName(e.target.value)}
+                        placeholder="Seu Nome e Sobrenome"
                         className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] outline-none"
                       />
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        E-mail de Cadastro:
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <input
+                          type="email"
+                          required
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          placeholder="seu.email@exemplo.com"
+                          className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        WhatsApp com DDD:
+                      </label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          required
+                          value={regPhone}
+                          onChange={(e) => setRegPhone(e.target.value)}
+                          placeholder="(11) 99999-9999"
+                          className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Crie uma Senha Forte:
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                      <input
+                        type="password"
+                        required
+                        value={regPassword}
+                        onChange={(e) => setRegPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Plan Preference Selection */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Selecione o Plano de Preferência:
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRegPlan('MENSAL')}
+                        className={`p-2 rounded-xl border text-center transition-all ${
+                          regPlan === 'MENSAL'
+                            ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <strong className="block text-xs">Mensal</strong>
+                        <span className="text-[10px] text-slate-500">R$ 29,90/mês</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRegPlan('SEMESTRAL')}
+                        className={`p-2 rounded-xl border text-center transition-all ${
+                          regPlan === 'SEMESTRAL'
+                            ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <strong className="block text-xs">Semestral</strong>
+                        <span className="text-[10px] text-emerald-600 font-bold">15% OFF</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRegPlan('ANUAL')}
+                        className={`p-2 rounded-xl border text-center transition-all ${
+                          regPlan === 'ANUAL'
+                            ? 'border-amber-500 bg-amber-50 text-amber-900 font-black'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <strong className="block text-xs">Anual</strong>
+                        <span className="text-[10px] text-amber-700 font-bold">30% OFF</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 mt-2"
+                  >
+                    {isLoading ? (
+                      <span>Enviando código de verificação...</span>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>Solicitar Código PIN de Confirmação</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="pt-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchMode('LOGIN')}
+                      className="text-xs text-[#2D3277] font-bold hover:underline"
+                    >
+                      Já possui uma conta? Faça Login
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* MODE: VERIFY PIN CODE */}
+            {mode === 'VERIFY_PIN' && (
+              <form onSubmit={handleVerifyPinSubmit} className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-xl text-xs text-[#2D3277]">
+                  <p className="font-bold mb-1">📧 Confirme a Autenticidade da Conta</p>
+                  <p className="text-[11px] text-slate-600">
+                    Insira abaixo o código de verificação enviado para o e-mail <strong>{pendingRegistrationEmail}</strong> para validar seu cadastro.
+                  </p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Crie uma Senha:
+                    Código de 6 Dígitos (PIN):
                   </label>
                   <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                     <input
-                      type="password"
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-[#2D3277] outline-none"
+                      type="text"
+                      required
+                      maxLength={6}
+                      value={verificationCode}
+                      onChange={(e) => setVerificationCode(e.target.value)}
+                      placeholder="Ex: 849201"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-sm font-mono tracking-widest font-bold focus:ring-2 focus:ring-[#2D3277] outline-none"
                     />
-                  </div>
-                </div>
-
-                {/* Plan Preference Selection */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Selecione o Plano Desejado:
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setRegPlan('MENSAL')}
-                      className={`p-2 rounded-xl border text-center transition-all ${
-                        regPlan === 'MENSAL'
-                          ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black'
-                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                      }`}
-                    >
-                      <strong className="block text-xs">Mensal</strong>
-                      <span className="text-[10px] text-slate-500">R$ 29,90/mês</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setRegPlan('SEMESTRAL')}
-                      className={`p-2 rounded-xl border text-center transition-all ${
-                        regPlan === 'SEMESTRAL'
-                          ? 'border-[#2D3277] bg-[#2D3277]/10 text-[#2D3277] font-black'
-                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                      }`}
-                    >
-                      <strong className="block text-xs">Semestral</strong>
-                      <span className="text-[10px] text-emerald-600 font-bold">15% OFF</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setRegPlan('ANUAL')}
-                      className={`p-2 rounded-xl border text-center transition-all ${
-                        regPlan === 'ANUAL'
-                          ? 'border-amber-500 bg-amber-50 text-amber-900 font-black'
-                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                      }`}
-                    >
-                      <strong className="block text-xs">Anual</strong>
-                      <span className="text-[10px] text-amber-700 font-bold">30% OFF</span>
-                    </button>
                   </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 mt-2"
+                  className="w-full py-3 rounded-xl bg-[#2D3277] hover:bg-[#1E2255] text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
-                    <span>Cadastrando sua conta...</span>
+                    <span>Validando PIN...</span>
                   ) : (
                     <>
-                      <UserPlus className="w-4 h-4" />
-                      <span>Finalizar Cadastro e Acessar</span>
+                      <Check className="w-4 h-4 text-[#FFE600]" />
+                      <span>Confirmar PIN e Acessar Plataforma</span>
                     </>
                   )}
                 </button>
 
-                <div className="pt-3 text-center">
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchMode('REGISTER')}
+                    className="text-xs text-slate-500 font-bold hover:underline"
+                  >
+                    ← Alterar dados de cadastro
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* MODE: WHATSAPP OTP */}
+            {mode === 'WHATSAPP_OTP' && (
+              <div className="space-y-4">
+                {!waCodeSent ? (
+                  <form onSubmit={handleSendWaOtp} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Número do Seu WhatsApp com DDD:
+                      </label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          required
+                          value={waPhone}
+                          onChange={(e) => setWaPhone(e.target.value)}
+                          placeholder="+55 (11) 99999-8888"
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-600 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                    >
+                      {isLoading ? (
+                        <span>Solicitando OTP...</span>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          <span>Enviar Código de Verificação para WhatsApp</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleVerifyWaOtp} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Código OTP Recebido no WhatsApp:
+                      </label>
+                      <div className="relative">
+                        <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          required
+                          maxLength={6}
+                          value={waCode}
+                          onChange={(e) => setWaCode(e.target.value)}
+                          placeholder="Ex: 582910"
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-sm font-mono tracking-widest font-bold focus:ring-2 focus:ring-emerald-600 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                    >
+                      {isLoading ? (
+                        <span>Validando OTP...</span>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Autenticar via WhatsApp</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                )}
+
+                <div className="text-center pt-2">
                   <button
                     type="button"
                     onClick={() => handleSwitchMode('LOGIN')}
                     className="text-xs text-[#2D3277] font-bold hover:underline"
                   >
-                    Já possui uma conta? Faça Login
+                    ← Voltar para a login por e-mail
                   </button>
                 </div>
-              </form>
-            </div>
-          )}
+              </div>
+            )}
 
-            {/* MODE 3: RECOVER PASSWORD FORM */}
+            {/* MODE: RECOVER PASSWORD FORM */}
             {mode === 'RECOVER' && (
               <form onSubmit={handleRecoverSubmit} className="space-y-4">
                 {!recoverSuccess ? (
