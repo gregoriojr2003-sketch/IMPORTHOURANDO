@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info, Webhook, Play, AlertCircle, RefreshCw, Send } from 'lucide-react';
-import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig, type LanguageRegionalStyle, WebhookConfig, WebhookEvent, WebhookLog } from '../types';
+import { X, Settings, ShieldCheck, Globe, Check, Server, Store, Link2, Sparkles, Volume2, MessageSquare, Wand2, Info, Webhook, Play, AlertCircle, RefreshCw, Send, Palette, Moon, Sun, CheckCircle2 } from 'lucide-react';
+import { AffiliateConfig, MarketplaceAffiliateAccounts, BrandVoiceConfig, type LanguageRegionalStyle, WebhookConfig, WebhookEvent, WebhookLog, ThemeAccentColor } from '../types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveConfig,
   onRequirePlanActivation
 }) => {
-  const [activeTab, setActiveTab] = useState<'MARKETPLACES' | 'WHATSAPP' | 'BRAND_VOICE' | 'WEBHOOKS'>('MARKETPLACES');
+  const [activeTab, setActiveTab] = useState<'MARKETPLACES' | 'WHATSAPP' | 'BRAND_VOICE' | 'WEBHOOKS' | 'THEME'>('MARKETPLACES');
 
   // Marketplace Accounts
   const initialAccounts: MarketplaceAffiliateAccounts = config.marketplaceAccounts || {
@@ -57,6 +57,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [defaultChannelInviteLink, setDefaultChannelInviteLink] = useState(config.defaultChannelInviteLink || 'https://whatsapp.com/channel/0029Va901823748291');
 
   const [customDomain, setCustomDomain] = useState(config.customDomain || '');
+  const [themeAccent, setThemeAccent] = useState<ThemeAccentColor>(config.themeAccent || 'BLUE');
   const [whatsappApiType, setWhatsappApiType] = useState(config.whatsappApiType);
   const [whatsappToken, setWhatsappToken] = useState(config.whatsappToken);
   const [whatsappInstance, setWhatsappInstance] = useState(config.whatsappInstance);
@@ -132,6 +133,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       webhookConfig,
       defaultChannelInviteLink,
       customDomain,
+      themeAccent,
       whatsappApiType,
       whatsappToken,
       whatsappInstance,
@@ -215,6 +217,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <Server className="w-4 h-4 text-emerald-600" />
             <span>API & Canal WhatsApp</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('THEME')}
+            className={`py-3 px-3 text-center border-b-2 whitespace-nowrap transition-all flex items-center justify-center space-x-1.5 flex-1 ${
+              activeTab === 'THEME'
+                ? 'border-[#2D3277] text-[#2D3277] bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Palette className="w-4 h-4 text-amber-500" />
+            <span>Tema & Aparência</span>
           </button>
         </div>
 
@@ -732,11 +747,230 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* Save Action */}
-          <div className="pt-3">
+          {activeTab === 'THEME' && (
+            <div className="space-y-6">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs font-medium flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Palette className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>Personalização do Dashboard:</strong> Escolha a cor de destaque principal e personalize a identidade visual do seu painel de controle.
+                  </span>
+                </div>
+              </div>
+
+              {/* Modo de Exibição (Dark / Light) */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
+                      <Sun className="w-4 h-4 text-amber-500" />
+                      <span>Modo Claro / Modo Escuro (Noturno)</span>
+                    </h4>
+                    <p className="text-slate-500 text-xs">
+                      O robô possui suporte nativo a tema escuro de alto contraste para trabalho noturno.
+                    </p>
+                  </div>
+                  <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase border border-slate-300">
+                    Alternador no Cabeçalho
+                  </span>
+                </div>
+              </div>
+
+              {/* Paleta de Cores de Destaque */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-extrabold text-slate-900 text-sm flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-purple-600" />
+                    <span>Selecione a Cor de Destaque (Accent Color)</span>
+                  </h4>
+                  <span className="text-[10px] text-slate-500 font-mono">Aplicado em botões e destaques</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {/* BLUE */}
+                  <button
+                    type="button"
+                    onClick={() => setThemeAccent('BLUE')}
+                    className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-2 cursor-pointer ${
+                      themeAccent === 'BLUE'
+                        ? 'border-[#3483FA] bg-blue-50/80 shadow-sm ring-2 ring-blue-400'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-4 h-4 rounded-full bg-[#3483FA] shadow-sm inline-block"></span>
+                        <span className="font-extrabold text-slate-900 text-xs">Azul Mercado Livre</span>
+                      </div>
+                      {themeAccent === 'BLUE' && <CheckCircle2 className="w-4 h-4 text-[#3483FA]" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">Tom oficial clássico Meli & IMPORTHOURANDO.</p>
+                    <span className="text-[9px] font-mono font-bold bg-blue-100 text-[#2D3277] px-2 py-0.5 rounded w-fit">#3483FA</span>
+                  </button>
+
+                  {/* PURPLE */}
+                  <button
+                    type="button"
+                    onClick={() => setThemeAccent('PURPLE')}
+                    className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-2 cursor-pointer ${
+                      themeAccent === 'PURPLE'
+                        ? 'border-purple-600 bg-purple-50/80 shadow-sm ring-2 ring-purple-400'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-4 h-4 rounded-full bg-purple-600 shadow-sm inline-block"></span>
+                        <span className="font-extrabold text-slate-900 text-xs">Roxo Imperial</span>
+                      </div>
+                      {themeAccent === 'PURPLE' && <CheckCircle2 className="w-4 h-4 text-purple-600" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">Visual moderno, sofisticado e tecnológico.</p>
+                    <span className="text-[9px] font-mono font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded w-fit">#8B5CF6</span>
+                  </button>
+
+                  {/* EMERALD */}
+                  <button
+                    type="button"
+                    onClick={() => setThemeAccent('EMERALD')}
+                    className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-2 cursor-pointer ${
+                      themeAccent === 'EMERALD'
+                        ? 'border-emerald-600 bg-emerald-50/80 shadow-sm ring-2 ring-emerald-400'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-4 h-4 rounded-full bg-emerald-500 shadow-sm inline-block"></span>
+                        <span className="font-extrabold text-slate-900 text-xs">Verde Esmeralda</span>
+                      </div>
+                      {themeAccent === 'EMERALD' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">Foco em altas conversões e lucro líquido.</p>
+                    <span className="text-[9px] font-mono font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded w-fit">#10B981</span>
+                  </button>
+
+                  {/* AMBER */}
+                  <button
+                    type="button"
+                    onClick={() => setThemeAccent('AMBER')}
+                    className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-2 cursor-pointer ${
+                      themeAccent === 'AMBER'
+                        ? 'border-amber-500 bg-amber-50/80 shadow-sm ring-2 ring-amber-400'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-4 h-4 rounded-full bg-amber-500 shadow-sm inline-block"></span>
+                        <span className="font-extrabold text-slate-900 text-xs">Dourado Âmbar</span>
+                      </div>
+                      {themeAccent === 'AMBER' && <CheckCircle2 className="w-4 h-4 text-amber-500" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">Tom vibrante focado em alerta de super ofertas.</p>
+                    <span className="text-[9px] font-mono font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded w-fit">#F59E0B</span>
+                  </button>
+
+                  {/* ROSE */}
+                  <button
+                    type="button"
+                    onClick={() => setThemeAccent('ROSE')}
+                    className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-2 cursor-pointer ${
+                      themeAccent === 'ROSE'
+                        ? 'border-rose-500 bg-rose-50/80 shadow-sm ring-2 ring-rose-400'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-4 h-4 rounded-full bg-rose-500 shadow-sm inline-block"></span>
+                        <span className="font-extrabold text-slate-900 text-xs">Vermelho Rosa</span>
+                      </div>
+                      {themeAccent === 'ROSE' && <CheckCircle2 className="w-4 h-4 text-rose-500" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">Alta energia e urgência para relâmpago de vendas.</p>
+                    <span className="text-[9px] font-mono font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded w-fit">#F43F5E</span>
+                  </button>
+
+                  {/* CYAN */}
+                  <button
+                    type="button"
+                    onClick={() => setThemeAccent('CYAN')}
+                    className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-2 cursor-pointer ${
+                      themeAccent === 'CYAN'
+                        ? 'border-cyan-500 bg-cyan-50/80 shadow-sm ring-2 ring-cyan-400'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-4 h-4 rounded-full bg-cyan-500 shadow-sm inline-block"></span>
+                        <span className="font-extrabold text-slate-900 text-xs">Ciano Elétrico</span>
+                      </div>
+                      {themeAccent === 'CYAN' && <CheckCircle2 className="w-4 h-4 text-cyan-500" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">Estilo limpo e futurista para robôs de automação.</p>
+                    <span className="text-[9px] font-mono font-bold bg-cyan-100 text-cyan-800 px-2 py-0.5 rounded w-fit">#06B6D4</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Interactive Live Preview */}
+              <div className="bg-slate-900 text-white p-4 rounded-2xl border border-slate-700 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="font-bold text-xs text-slate-300 flex items-center space-x-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Pré-visualização em Tempo Real do Tema</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400 uppercase">Tema Selecionado: {themeAccent}</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-all"
+                    style={{
+                      backgroundColor:
+                        themeAccent === 'PURPLE' ? '#7c3aed' :
+                        themeAccent === 'EMERALD' ? '#059669' :
+                        themeAccent === 'AMBER' ? '#d97706' :
+                        themeAccent === 'ROSE' ? '#e11d48' :
+                        themeAccent === 'CYAN' ? '#0891b2' : '#3483FA'
+                    }}
+                  >
+                    Botão de Ação Primário
+                  </button>
+
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-black uppercase border"
+                    style={{
+                      color:
+                        themeAccent === 'PURPLE' ? '#a78bfa' :
+                        themeAccent === 'EMERALD' ? '#34d399' :
+                        themeAccent === 'AMBER' ? '#fbbf24' :
+                        themeAccent === 'ROSE' ? '#fb7185' :
+                        themeAccent === 'CYAN' ? '#22d3ee' : '#60a5fa',
+                      borderColor:
+                        themeAccent === 'PURPLE' ? '#7c3aed' :
+                        themeAccent === 'EMERALD' ? '#059669' :
+                        themeAccent === 'AMBER' ? '#d97706' :
+                        themeAccent === 'ROSE' ? '#e11d48' :
+                        themeAccent === 'CYAN' ? '#0891b2' : '#3483FA',
+                      backgroundColor: 'rgba(255,255,255,0.05)'
+                    }}
+                  >
+                    Badge de Status
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Save Action & Copyright Notice */}
+          <div className="pt-3 space-y-2">
             <button
               type="submit"
-              className="w-full bg-[#2D3277] hover:bg-[#3D438F] text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-sm text-sm"
+              className="w-full bg-[#2D3277] hover:bg-[#3D438F] text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-sm text-sm cursor-pointer"
             >
               {saveSuccess ? (
                 <>
@@ -744,9 +978,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>Configurações Salvas com Sucesso!</span>
                 </>
               ) : (
-                <span>Salvar Configurações de Afiliado, Voz, Webhooks & WhatsApp</span>
+                <span>Salvar Configurações de Afiliado, Voz, Webhooks & Tema</span>
               )}
             </button>
+            <p className="text-[10px] text-center text-slate-400 font-semibold tracking-wide">
+              Todos os direitos reservados a IMPORTHOUR©
+            </p>
           </div>
         </form>
       </div>

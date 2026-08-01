@@ -372,6 +372,7 @@ export const INITIAL_SCHEDULER_CONFIG: AutoSchedulerConfig = {
 export const INITIAL_AFFILIATE_CONFIG: AffiliateConfig = {
   affiliateTag: 'ofertastop_app',
   customDomain: 'm.ofertastop.com.br',
+  themeAccent: 'BLUE',
   marketplaceAccounts: {
     mercadoLivreTag: 'ofertastop_app',
     shopeeTag: 'shopee_af_top',

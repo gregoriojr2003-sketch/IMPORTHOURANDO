@@ -21,6 +21,7 @@ import { SubscriptionPaywallModal } from './components/SubscriptionPaywallModal'
 
 import { MercadoLivreProduct, WhatsAppChannel, OfferPostTemplate, DispatchedOffer, AutoSchedulerConfig, AffiliateConfig, Subscriber, AdminNotification, PriceAlertRule } from './types';
 import { INITIAL_PRODUCTS, INITIAL_CHANNELS, INITIAL_TEMPLATES, INITIAL_DISPATCHED_LOGS, INITIAL_SCHEDULER_CONFIG, INITIAL_AFFILIATE_CONFIG, INITIAL_SUBSCRIBERS, INITIAL_ADMIN_NOTIFICATIONS, INITIAL_PRICE_ALERTS } from './data/initialData';
+import { supabase } from './lib/supabase';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'channels' | 'templates' | 'logs' | 'subscribers'>('dashboard');
@@ -109,6 +110,58 @@ export default function App() {
       // ignore
     }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    try {
+      const accent = affiliateConfig.themeAccent || 'BLUE';
+      document.documentElement.setAttribute('data-accent', accent);
+      localStorage.setItem('importhourando_theme_accent', accent);
+    } catch (e) {
+      // ignore
+    }
+  }, [affiliateConfig.themeAccent]);
+
+  // Supabase Auth State Change Listener (Google Login Support)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const userEmail = session.user.email || 'usuario@google.com';
+        const userName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || userEmail.split('@')[0];
+        const isAdmin = userEmail.toLowerCase() === 'gregoriojr2003@gmail.com' || userEmail.toLowerCase() === 'admin@importhourando.com.br';
+
+        const userObj = {
+          name: userName,
+          email: userEmail,
+          role: (isAdmin ? 'ADMIN' : 'SUBSCRIBER') as 'ADMIN' | 'SUBSCRIBER',
+          subscriber: {
+            id: `sub-supabase-${session.user.id}`,
+            name: userName,
+            email: userEmail,
+            phone: session.user.phone || '+55 11 99999-0000',
+            plan: 'MENSAL' as const,
+            status: 'ATIVO' as const,
+            startedAt: new Date().toISOString().split('T')[0],
+            expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+            totalPaid: 49.90,
+            discountApplied: 0,
+            isLifetimeExemptFromMonitoring: false,
+            notes: 'Autenticado via Google Supabase Auth'
+          }
+        };
+
+        setCurrentUser(userObj);
+        setUserRole(userObj.role);
+        setCurrentSubscriber(userObj.subscriber);
+        setIsAuthenticated(true);
+        sessionStorage.setItem('importhourando_auth', 'true');
+        sessionStorage.setItem('importhourando_user', JSON.stringify(userObj));
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleToggleDarkMode = () => {
     setIsDarkMode(prev => !prev);

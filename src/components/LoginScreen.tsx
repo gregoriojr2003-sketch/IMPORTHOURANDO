@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ShieldCheck, User, Lock, ArrowRight, Sparkles, CheckCircle2, Crown, AlertCircle, LogIn, UserPlus, KeyRound, Mail, Phone, Check, Smartphone, Send, RefreshCw } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { Subscriber } from '../types';
+import { signInWithGoogle } from '../lib/supabase';
 
 interface LoginScreenProps {
   subscribers: Subscriber[];
@@ -205,6 +206,39 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setIsLoading(true);
     setError('');
     setSuccessMsg('');
+
+    if (provider === 'Google') {
+      try {
+        setSuccessMsg('Redirecionando para autenticação do Google via Supabase Auth...');
+        await signInWithGoogle();
+        return;
+      } catch (err: any) {
+        console.warn('[Google Auth Supabase Fallback]', err);
+        // Fallback to server endpoint if Supabase client project isn't fully set up yet
+        try {
+          const res = await fetch('/api/auth/social-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            onLoginSuccess({
+              name: data.user.name,
+              email: data.user.email,
+              role: data.role,
+              subscriber: data.subscriber
+            });
+            return;
+          }
+        } catch (fallbackErr) {
+          setError('Erro na conexão com Google via Supabase. Verifique suas chaves VITE_SUPABASE_URL.');
+        }
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
 
     try {
       const res = await fetch('/api/auth/social-auth', {

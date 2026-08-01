@@ -82,3 +82,70 @@ html.dark ::-webkit-scrollbar-track {
 html.dark ::-webkit-scrollbar-thumb {
   background: #334155;
 }
+
+/* Custom Accent Theme Overrides (IMPORTHOUR©) */
+html[data-accent="PURPLE"] .bg-\[\#3483FA\],
+html[data-accent="PURPLE"] .bg-\[\#2D3277\] {
+  background-color: #7c3aed !important;
+}
+html[data-accent="PURPLE"] .text-\[\#3483FA\],
+html[data-accent="PURPLE"] .text-\[\#2D3277\] {
+  color: #8b5cf6 !important;
+}
+html[data-accent="PURPLE"] .border-\[\#3483FA\],
+html[data-accent="PURPLE"] .border-\[\#2D3277\] {
+  border-color: #8b5cf6 !important;
+}
+
+html[data-accent="EMERALD"] .bg-\[\#3483FA\],
+html[data-accent="EMERALD"] .bg-\[\#2D3277\] {
+  background-color: #059669 !important;
+}
+html[data-accent="EMERALD"] .text-\[\#3483FA\],
+html[data-accent="EMERALD"] .text-\[\#2D3277\] {
+  color: #10b981 !important;
+}
+html[data-accent="EMERALD"] .border-\[\#3483FA\],
+html[data-accent="EMERALD"] .border-\[\#2D3277\] {
+  border-color: #10b981 !important;
+}
+
+html[data-accent="AMBER"] .bg-\[\#3483FA\],
+html[data-accent="AMBER"] .bg-\[\#2D3277\] {
+  background-color: #d97706 !important;
+}
+html[data-accent="AMBER"] .text-\[\#3483FA\],
+html[data-accent="AMBER"] .text-\[\#2D3277\] {
+  color: #f59e0b !important;
+}
+html[data-accent="AMBER"] .border-\[\#3483FA\],
+html[data-accent="AMBER"] .border-\[\#2D3277\] {
+  border-color: #f59e0b !important;
+}
+
+html[data-accent="ROSE"] .bg-\[\#3483FA\],
+html[data-accent="ROSE"] .bg-\[\#2D3277\] {
+  background-color: #e11d48 !important;
+}
+html[data-accent="ROSE"] .text-\[\#3483FA\],
+html[data-accent="ROSE"] .text-\[\#2D3277\] {
+  color: #f43f5e !important;
+}
+html[data-accent="ROSE"] .border-\[\#3483FA\],
+html[data-accent="ROSE"] .border-\[\#2D3277\] {
+  border-color: #f43f5e !important;
+}
+
+html[data-accent="CYAN"] .bg-\[\#3483FA\],
+html[data-accent="CYAN"] .bg-\[\#2D3277\] {
+  background-color: #0891b2 !important;
+}
+html[data-accent="CYAN"] .text-\[\#3483FA\],
+html[data-accent="CYAN"] .text-\[\#2D3277\] {
+  color: #06b6d4 !important;
+}
+html[data-accent="CYAN"] .border-\[\#3483FA\],
+html[data-accent="CYAN"] .border-\[\#2D3277\] {
+  border-color: #06b6d4 !important;
+}
+

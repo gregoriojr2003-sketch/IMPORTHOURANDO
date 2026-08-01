@@ -149,9 +149,12 @@ export interface WebhookLog {
   timestamp: string;
 }
 
+export type ThemeAccentColor = 'BLUE' | 'PURPLE' | 'EMERALD' | 'AMBER' | 'ROSE' | 'CYAN';
+
 export interface AffiliateConfig {
   affiliateTag: string; // Legacy / ML tag
   customDomain?: string;
+  themeAccent?: ThemeAccentColor;
   
   // Multi-Marketplace Accounts
   marketplaceAccounts?: MarketplaceAffiliateAccounts;
