@@ -207,6 +207,8 @@ export interface Subscriber {
   cancellationRequestedAt?: string;
   reengagementDeadline?: string; // Regra 2: Janela de 3 meses de reconquista
   notes?: string;
+  affiliateConfig?: AffiliateConfig;
+  channels?: WhatsAppChannel[];
 }
 
 export interface AdminNotification {

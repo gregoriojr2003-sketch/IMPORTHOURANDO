@@ -705,16 +705,37 @@ async function startServer() {
 
   // 2. Mercado Livre & WhatsApp Affiliate Config
   app.get('/api/config', (req, res) => {
+    const email = req.query.email ? String(req.query.email).trim().toLowerCase() : null;
+    if (email) {
+      const sub = subscribersList.find(s => s.email.toLowerCase() === email);
+      if (sub && sub.affiliateConfig) {
+        return res.json({ affiliateConfig: sub.affiliateConfig, schedulerConfig });
+      }
+    }
     res.json({ affiliateConfig, schedulerConfig });
   });
 
   app.post('/api/config', (req, res) => {
+    const { email, userEmail } = req.body;
+    const targetEmail = email || userEmail;
+
     if (req.body.affiliateConfig) {
       affiliateConfig = { ...affiliateConfig, ...req.body.affiliateConfig };
     }
     if (req.body.schedulerConfig) {
       schedulerConfig = { ...schedulerConfig, ...req.body.schedulerConfig };
     }
+
+    if (targetEmail) {
+      const cleanEmail = String(targetEmail).trim().toLowerCase();
+      const sub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
+      if (sub) {
+        if (req.body.affiliateConfig) {
+          sub.affiliateConfig = { ...(sub.affiliateConfig || affiliateConfig), ...req.body.affiliateConfig };
+        }
+      }
+    }
+
     res.json({ success: true, affiliateConfig, schedulerConfig });
   });
 
@@ -1124,11 +1145,19 @@ Diretrizes Obrigatórias de Formatação Viral:
 
   // 6. WhatsApp Channels Management
   app.get('/api/whatsapp/channels', (req, res) => {
+    const email = req.query.email ? String(req.query.email).trim().toLowerCase() : null;
+    if (email) {
+      const sub = subscribersList.find(s => s.email.toLowerCase() === email);
+      if (sub && sub.channels && sub.channels.length > 0) {
+        return res.json({ channels: sub.channels });
+      }
+    }
     res.json({ channels: channelsList });
   });
 
   app.post('/api/whatsapp/channels', (req, res) => {
-    const { name, type, phoneNumberOrJid, autoPost } = req.body;
+    const { name, type, phoneNumberOrJid, autoPost, email, userEmail } = req.body;
+    const targetEmail = email || userEmail;
     const newChan: WhatsAppChannel = {
       id: `chan-${Date.now()}`,
       name: name || 'Novo Canal de Ofertas',
@@ -1140,12 +1169,32 @@ Diretrizes Obrigatórias de Formatação Viral:
     };
 
     channelsList.push(newChan);
-    res.json({ success: true, channel: newChan });
+
+    if (targetEmail) {
+      const cleanEmail = String(targetEmail).trim().toLowerCase();
+      const sub = subscribersList.find(s => s.email.toLowerCase() === cleanEmail);
+      if (sub) {
+        sub.channels = sub.channels ? [...sub.channels, newChan] : [...channelsList];
+      }
+    }
+
+    res.json({ success: true, channel: newChan, channels: channelsList });
   });
 
   app.delete('/api/whatsapp/channels/:id', (req, res) => {
-    channelsList = channelsList.filter(c => c.id !== req.params.id);
-    res.json({ success: true });
+    const channelId = req.params.id;
+    const targetEmail = (req.query.email || req.body?.email) ? String(req.query.email || req.body?.email).trim().toLowerCase() : null;
+
+    channelsList = channelsList.filter(c => c.id !== channelId);
+
+    if (targetEmail) {
+      const sub = subscribersList.find(s => s.email.toLowerCase() === targetEmail);
+      if (sub && sub.channels) {
+        sub.channels = sub.channels.filter(c => c.id !== channelId);
+      }
+    }
+
+    res.json({ success: true, channels: channelsList });
   });
 
   // 7. Dispatch Offer to WhatsApp Channel/Group/Status

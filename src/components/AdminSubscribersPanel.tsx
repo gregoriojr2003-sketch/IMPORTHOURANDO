@@ -23,10 +23,20 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
   onMarkNotificationsRead,
   onUpdateSubscriber
 }) => {
-  const [activeTab, setActiveTab] = useState<'ALL' | 'RULE_1_LIFETIME' | 'RULE_2_RECONQUEST' | 'RULE_3_DISCOUNTS' | 'NOTIFICATIONS' | 'PAYMENT_SETTINGS'>('ALL');
+  const [activeTab, setActiveTab] = useState<'ALL' | 'RULE_1_LIFETIME' | 'VIP_GUESTS' | 'RULE_2_RECONQUEST' | 'RULE_3_DISCOUNTS' | 'NOTIFICATIONS' | 'PAYMENT_SETTINGS'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlanFilter, setSelectedPlanFilter] = useState<'ALL' | SubscriptionPlan>('ALL');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+
+  // VIP Guest Creation State
+  const [newVipName, setNewVipName] = useState('');
+  const [newVipEmail, setNewVipEmail] = useState('');
+  const [newVipPhone, setNewVipPhone] = useState('');
+  const [newVipCategory, setNewVipCategory] = useState('Convidado Especial do Administrador');
+  const [newVipNotes, setNewVipNotes] = useState('');
+  const [isSavingVip, setIsSavingVip] = useState(false);
+  const [vipSuccessMsg, setVipSuccessMsg] = useState('');
+  const [vipActionLoadingId, setVipActionLoadingId] = useState<string | null>(null);
 
   // Edit / Convert Subscriber State
   const [editingSub, setEditingSub] = useState<Subscriber | null>(null);
@@ -84,6 +94,80 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
       console.error(err);
     } finally {
       setIsSavingPayment(false);
+    }
+  };
+
+  // Toggle VIP / Exempt Privileges for any user
+  const handleToggleVipStatus = async (sub: Subscriber, enableVip: boolean) => {
+    setVipActionLoadingId(sub.id);
+    try {
+      const newStatus = enableVip ? 'ATIVO' : 'CANCELADO';
+      const newPlan = enableVip ? 'VITALICIO' : sub.plan;
+      const noteText = enableVip
+        ? `👑 Privilégio VIP concedido pelo Administrador (Isento de Pagamento).`
+        : `⛔ Privilégios VIP revogados pelo Administrador. Escolha de plano de assinatura necessária.`;
+
+      const res = await fetch('/api/admin/subscribers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: sub.id,
+          email: sub.email,
+          name: sub.name,
+          phone: sub.phone,
+          plan: newPlan,
+          status: newStatus,
+          isLifetimeExemptFromMonitoring: enableVip,
+          notes: noteText
+        })
+      });
+      if (res.ok) {
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Erro ao alterar privilégios VIP:', err);
+    } finally {
+      setVipActionLoadingId(null);
+    }
+  };
+
+  // Register New VIP Guest
+  const handleCreateVipGuest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newVipName || !newVipEmail) return;
+    setIsSavingVip(true);
+    setVipSuccessMsg('');
+    try {
+      const noteContent = `👑 CONVIDADO VIP: [${newVipCategory}] - ${newVipNotes || 'Cadastrado pelo Administrador'}`;
+      const res = await fetch('/api/admin/subscribers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newVipName,
+          email: newVipEmail,
+          phone: newVipPhone || '+55 11 99999-0000',
+          plan: 'VITALICIO',
+          status: 'ATIVO',
+          isLifetimeExemptFromMonitoring: true,
+          totalPaid: 0,
+          discountApplied: 100,
+          notes: noteContent
+        })
+      });
+
+      if (res.ok) {
+        setVipSuccessMsg(`✨ Convidado VIP "${newVipName}" cadastrado com sucesso! Privilégios de isenção ativos.`);
+        setNewVipName('');
+        setNewVipEmail('');
+        setNewVipPhone('');
+        setNewVipNotes('');
+        onRefresh();
+        setTimeout(() => setVipSuccessMsg(''), 4500);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSavingVip(false);
     }
   };
 
@@ -181,7 +265,9 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
   // Stats calculation
   const totalSubscribers = subscribers.length;
   const activeCount = subscribers.filter(s => s.status === 'ATIVO').length;
-  const lifetimeCount = subscribers.filter(s => s.plan === 'VITALICIO').length;
+  const lifetimeCount = subscribers.filter(s => s.plan === 'VITALICIO' || s.isLifetimeExemptFromMonitoring).length;
+  const vipGuestsList = subscribers.filter(s => s.isLifetimeExemptFromMonitoring || s.plan === 'VITALICIO' || s.notes?.toLowerCase().includes('vip') || s.notes?.toLowerCase().includes('convidado'));
+  const vipCount = vipGuestsList.length;
   const reconquestCount = subscribers.filter(s => s.status === 'RECONQUISTA_3M').length;
   const convertedDiscountCount = subscribers.filter(s => (s.discountApplied || 0) > 0).length;
   const totalRevenue = subscribers.reduce((acc, curr) => acc + (curr.totalPaid || 0), 0);
@@ -218,12 +304,20 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
   };
 
   const getPlanBadge = (plan: SubscriptionPlan, isExempt?: boolean) => {
+    if (isExempt || plan === 'VITALICIO') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+          <Crown className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
+          Vitalício VIP (Isento)
+        </span>
+      );
+    }
     switch (plan) {
       case 'ANUAL':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
             <Crown className="w-3.5 h-3.5 text-amber-600" />
-            Anual {isExempt && '(Isento de Cobrança)'}
+            Anual
           </span>
         );
       case 'SEMESTRAL':
@@ -238,6 +332,12 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
             <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
             Mensal
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+            {plan}
           </span>
         );
     }
@@ -384,6 +484,18 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
           >
             <Crown className="w-4 h-4 text-amber-500" />
             Regra 1: Anuais ({lifetimeCount})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('VIP_GUESTS')}
+            className={`pb-3 px-4 font-semibold text-sm transition-all border-b-2 flex items-center gap-2 ${
+              activeTab === 'VIP_GUESTS'
+                ? 'border-amber-600 text-amber-900 bg-amber-100/80 rounded-t-lg font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-600" />
+            👑 Convidados VIP ({vipCount})
           </button>
 
           <button
@@ -718,13 +830,35 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            {sub.isLifetimeExemptFromMonitoring ? (
+                              <button
+                                onClick={() => handleToggleVipStatus(sub, false)}
+                                disabled={vipActionLoadingId === sub.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-red-600 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                                title="Privilégio VIP Ativo! Clique para DESATIVAR isenção e exigir plano de assinatura"
+                              >
+                                <Crown className="w-3.5 h-3.5 fill-white" />
+                                VIP Ativo (Desativar)
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleVipStatus(sub, true)}
+                                disabled={vipActionLoadingId === sub.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 font-bold text-xs shadow-xs transition-all cursor-pointer"
+                                title="Clique para conceder Isenção & Privilégios VIP a este usuário"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                                Isentar / Dar VIP
+                              </button>
+                            )}
+
                             <button
                               onClick={() => handleOpenEditModal(sub)}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2D3277] text-white hover:bg-[#1f2356] font-bold text-xs shadow-xs transition-all"
                               title="Converter perfil ou status do assinante"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              Converter Perfil / Status
+                              Converter Perfil
                             </button>
                             <a
                               href={`https://wa.me/${sub.phone.replace(/\D/g, '')}?text=Ol%C3%A1%20${encodeURIComponent(sub.name)}%2C%20tudo%20bem%3F%20Falo%20do%20app%20IMPORTHOURANDO%20!`}
@@ -742,6 +876,210 @@ export const AdminSubscribersPanel: React.FC<AdminSubscribersPanelProps> = ({
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        ) : activeTab === 'VIP_GUESTS' ? (
+          /* Tab Content: GESTÃO E CADASTRO DE CONVIDADOS VIP */
+          <div className="p-6 space-y-6">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-amber-950 via-yellow-900 to-slate-900 p-6 rounded-2xl text-white shadow-lg space-y-3">
+              <div className="flex items-center gap-2 text-xs font-black text-amber-300 uppercase tracking-wider">
+                <Crown className="w-4 h-4 text-amber-400 fill-amber-400" /> Autoridade do Administrador — Isenções & Convidados VIP
+              </div>
+              <h3 className="text-xl font-extrabold text-white">
+                Área Exclusiva de Cadastro e Gestão de Convidados VIP
+              </h3>
+              <p className="text-xs text-amber-100/90 max-w-4xl leading-relaxed">
+                Como Administrador, você possui autoridade total para conceder ou revogar privilégios VIP no sistema. As pessoas cadastradas aqui terão <strong>isenção total de cobranças</strong> e acesso perpétuo às automações do robô.
+                <br/>
+                <span className="text-amber-300 font-bold block mt-1.5">
+                  ⚡ REGRA DE DESATIVAÇÃO: O status VIP pode ser DESATIVADO a qualquer momento pelo Administrador. Ao ser desativado, o cadastrado na condição de VIP perderá a isenção e terá obrigatoriamente que escolher um plano de assinatura ao acessar o sistema.
+                </span>
+              </p>
+            </div>
+
+            {/* Form Card */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+              <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
+                <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                  <UserPlus className="w-4.5 h-4.5 text-amber-600" />
+                  Cadastrar Novo Convidado VIP no Sistema
+                </h4>
+                <span className="text-[10px] font-black bg-amber-100 text-amber-900 px-3 py-1 rounded-full uppercase border border-amber-300">
+                  Acesso Vitalício Isento
+                </span>
+              </div>
+
+              <form onSubmit={handleCreateVipGuest} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nome do Convidado *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Gabriel Santos (Creator)"
+                      value={newVipName}
+                      onChange={e => setNewVipName(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">E-mail do Convidado *</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="gabriel@parceiro.com"
+                      value={newVipEmail}
+                      onChange={e => setNewVipEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">WhatsApp / Telefone *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="+55 11 98888-7777"
+                      value={newVipPhone}
+                      onChange={e => setNewVipPhone(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Categoria / Motivo da Isenção</label>
+                    <select
+                      value={newVipCategory}
+                      onChange={e => setNewVipCategory(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                    >
+                      <option value="Convidado Especial do Administrador">Convidado Especial do Administrador</option>
+                      <option value="Parceiro Estratégico / Afiliado Top">Parceiro Estratégico / Afiliado Top</option>
+                      <option value="Influenciador / Creator VIP">Influenciador / Creator VIP</option>
+                      <option value="Equipe Interna / Suporte Técnico">Equipe Interna / Suporte Técnico</option>
+                      <option value="Amigo ou Família">Amigo ou Família</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Observações Internas</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Concedido acesso por tempo indeterminado por Gregório Jr."
+                      value={newVipNotes}
+                      onChange={e => setNewVipNotes(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {vipSuccessMsg && (
+                  <div className="p-3.5 bg-emerald-100 border border-emerald-300 rounded-xl text-emerald-900 text-xs font-bold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                    {vipSuccessMsg}
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={isSavingVip}
+                    className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <Crown className="w-4 h-4 fill-white" />
+                    {isSavingVip ? 'Cadastrando VIP...' : 'Cadastrar Convidado VIP & Conceder Privilégios'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* List of Registered VIP Guests */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-amber-600 fill-amber-500" />
+                  Lista de Convidados & Assinantes Isentos (VIPs) ({vipGuestsList.length})
+                </h4>
+                <span className="text-xs text-slate-500 font-medium">
+                  Ative ou desative o privilégio VIP com 1 clique
+                </span>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="py-3 px-4">Convidado / Acesso</th>
+                      <th className="py-3 px-4">Plano / Categoria VIP</th>
+                      <th className="py-3 px-4">Status do Privilégio</th>
+                      <th className="py-3 px-4">Observações</th>
+                      <th className="py-3 px-4 text-right">Controle de Privilégio</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {vipGuestsList.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-12 text-center text-slate-500">
+                          Nenhum convidado VIP cadastrado no momento. Utilize o formulário acima para cadastrar.
+                        </td>
+                      </tr>
+                    ) : (
+                      vipGuestsList.map(guest => (
+                        <tr key={guest.id} className="hover:bg-slate-50 transition-all">
+                          <td className="py-3.5 px-4">
+                            <div className="font-extrabold text-slate-900">{guest.name}</div>
+                            <div className="text-xs text-slate-500">{guest.email} • {guest.phone}</div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {getPlanBadge(guest.plan, guest.isLifetimeExemptFromMonitoring)}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {guest.isLifetimeExemptFromMonitoring ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                👑 VIP ATIVO (Isento)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-red-100 text-red-900 border border-red-300">
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                                🔴 VIP DESATIVADO (Escolha de Plano)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-slate-600 max-w-xs truncate">
+                            {guest.notes || 'Cadastrado no painel adm'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            {guest.isLifetimeExemptFromMonitoring ? (
+                              <button
+                                onClick={() => handleToggleVipStatus(guest, false)}
+                                disabled={vipActionLoadingId === guest.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                              >
+                                <Lock className="w-3.5 h-3.5" />
+                                Desativar VIP (Exigir Plano)
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleVipStatus(guest, true)}
+                                disabled={vipActionLoadingId === guest.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                              >
+                                <Unlock className="w-3.5 h-3.5" />
+                                Reativar Privilégio VIP
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : (

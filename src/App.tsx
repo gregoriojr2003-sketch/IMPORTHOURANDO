@@ -201,10 +201,13 @@ export default function App() {
   // Sync state with server API
   const fetchAllData = async () => {
     try {
+      const targetEmail = currentUser?.email || 'gregoriojr2003@gmail.com';
+      const emailQuery = targetEmail ? `?email=${encodeURIComponent(targetEmail)}` : '';
+
       const [resConfig, resProds, resChans, resTmpls, resLogs, resSubs, resMlMon] = await Promise.all([
-        fetch('/api/config').then(r => r.json()).catch(() => null),
+        fetch(`/api/config${emailQuery}`).then(r => r.json()).catch(() => null),
         fetch('/api/products').then(r => r.json()).catch(() => null),
-        fetch('/api/whatsapp/channels').then(r => r.json()).catch(() => null),
+        fetch(`/api/whatsapp/channels${emailQuery}`).then(r => r.json()).catch(() => null),
         fetch('/api/templates').then(r => r.json()).catch(() => null),
         fetch('/api/dispatches').then(r => r.json()).catch(() => null),
         fetch('/api/admin/subscribers').then(r => r.json()).catch(() => null),
@@ -218,11 +221,34 @@ export default function App() {
       if (resChans?.channels) setChannels(resChans.channels);
       if (resTmpls?.templates) setTemplates(resTmpls.templates);
       if (resLogs?.logs) setDispatchedLogs(resLogs.logs);
+
+      // Restore client-side local storage backup per subscriber
+      if (targetEmail) {
+        try {
+          const savedAff = localStorage.getItem('importhourando_affiliate_config_' + targetEmail.toLowerCase());
+          if (savedAff) {
+            const parsedAff = JSON.parse(savedAff);
+            setAffiliateConfig(prev => ({ ...prev, ...parsedAff }));
+          }
+          const savedChans = localStorage.getItem('importhourando_whatsapp_channels_' + targetEmail.toLowerCase());
+          if (savedChans) {
+            const parsedChans = JSON.parse(savedChans);
+            if (Array.isArray(parsedChans) && parsedChans.length > 0) {
+              setChannels(parsedChans);
+            }
+          }
+        } catch (e) {}
+      }
+
       if (resSubs?.subscribers) {
         setSubscribers(resSubs.subscribers);
         if (resSubs.notifications) setAdminNotifications(resSubs.notifications);
-        const loggedUser = resSubs.subscribers.find((s: Subscriber) => s.email === 'gregoriojr2003@gmail.com') || resSubs.subscribers[0];
-        if (loggedUser) setCurrentSubscriber(loggedUser);
+        const loggedUser = resSubs.subscribers.find((s: Subscriber) => s.email.toLowerCase() === targetEmail.toLowerCase()) || resSubs.subscribers[0];
+        if (loggedUser) {
+          setCurrentSubscriber(loggedUser);
+          if (loggedUser.affiliateConfig) setAffiliateConfig(loggedUser.affiliateConfig);
+          if (loggedUser.channels && loggedUser.channels.length > 0) setChannels(loggedUser.channels);
+        }
       }
     } catch (e) {
       console.log('Using default mock state');
@@ -265,7 +291,8 @@ export default function App() {
   const handleSaveConfig = async (updatedAffiliate?: Partial<AffiliateConfig>, updatedScheduler?: Partial<AutoSchedulerConfig>) => {
     if (!ensureActiveSubscription('salvar e alterar configurações de automação')) return;
     try {
-      const payload: any = {};
+      const userEmail = currentUser?.email;
+      const payload: any = { email: userEmail, userEmail };
       if (updatedAffiliate) payload.affiliateConfig = updatedAffiliate;
       if (updatedScheduler) payload.schedulerConfig = updatedScheduler;
 
@@ -275,10 +302,25 @@ export default function App() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (data.affiliateConfig) setAffiliateConfig(data.affiliateConfig);
+      if (data.affiliateConfig) {
+        setAffiliateConfig(data.affiliateConfig);
+        if (userEmail) {
+          try {
+            localStorage.setItem('importhourando_affiliate_config_' + userEmail.toLowerCase(), JSON.stringify(data.affiliateConfig));
+          } catch (e) {}
+        }
+      }
       if (data.schedulerConfig) setSchedulerConfig(data.schedulerConfig);
     } catch (e) {
-      if (updatedAffiliate) setAffiliateConfig({ ...affiliateConfig, ...updatedAffiliate });
+      if (updatedAffiliate) {
+        const merged = { ...affiliateConfig, ...updatedAffiliate };
+        setAffiliateConfig(merged);
+        if (currentUser?.email) {
+          try {
+            localStorage.setItem('importhourando_affiliate_config_' + currentUser.email.toLowerCase(), JSON.stringify(merged));
+          } catch (e) {}
+        }
+      }
       if (updatedScheduler) setSchedulerConfig({ ...schedulerConfig, ...updatedScheduler });
     }
   };
@@ -366,15 +408,26 @@ export default function App() {
 
   const handleAddChannel = async (channel: Partial<WhatsAppChannel>) => {
     if (!ensureActiveSubscription('adicionar novos canais ou grupos do WhatsApp')) return;
+    const userEmail = currentUser?.email;
     try {
       const res = await fetch('/api/whatsapp/channels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(channel)
+        body: JSON.stringify({ ...channel, email: userEmail, userEmail })
       });
       const data = await res.json();
+      let updatedChans: WhatsAppChannel[] = [];
       if (data.channel) {
-        setChannels([...channels, data.channel]);
+        updatedChans = [...channels, data.channel];
+        setChannels(updatedChans);
+      } else if (data.channels) {
+        updatedChans = data.channels;
+        setChannels(updatedChans);
+      }
+      if (userEmail && updatedChans.length > 0) {
+        try {
+          localStorage.setItem('importhourando_whatsapp_channels_' + userEmail.toLowerCase(), JSON.stringify(updatedChans));
+        } catch (e) {}
       }
     } catch (e) {
       const fallback: WhatsAppChannel = {
@@ -386,16 +439,36 @@ export default function App() {
         status: 'CONNECTED',
         autoPost: true
       };
-      setChannels([...channels, fallback]);
+      const updatedChans = [...channels, fallback];
+      setChannels(updatedChans);
+      if (userEmail) {
+        try {
+          localStorage.setItem('importhourando_whatsapp_channels_' + userEmail.toLowerCase(), JSON.stringify(updatedChans));
+        } catch (e) {}
+      }
     }
   };
 
   const handleDeleteChannel = async (channelId: string) => {
+    const userEmail = currentUser?.email;
+    const emailParam = userEmail ? `?email=${encodeURIComponent(userEmail)}` : '';
     try {
-      await fetch(`/api/whatsapp/channels/${channelId}`, { method: 'DELETE' });
-      setChannels(channels.filter(c => c.id !== channelId));
+      await fetch(`/api/whatsapp/channels/${channelId}${emailParam}`, { method: 'DELETE' });
+      const updatedChans = channels.filter(c => c.id !== channelId);
+      setChannels(updatedChans);
+      if (userEmail) {
+        try {
+          localStorage.setItem('importhourando_whatsapp_channels_' + userEmail.toLowerCase(), JSON.stringify(updatedChans));
+        } catch (e) {}
+      }
     } catch (e) {
-      setChannels(channels.filter(c => c.id !== channelId));
+      const updatedChans = channels.filter(c => c.id !== channelId);
+      setChannels(updatedChans);
+      if (userEmail) {
+        try {
+          localStorage.setItem('importhourando_whatsapp_channels_' + userEmail.toLowerCase(), JSON.stringify(updatedChans));
+        } catch (e) {}
+      }
     }
   };
 
@@ -445,7 +518,28 @@ export default function App() {
     setCurrentUser(userObj);
     if (user.subscriber) {
       setCurrentSubscriber(user.subscriber);
+      if (user.subscriber.affiliateConfig) {
+        setAffiliateConfig(user.subscriber.affiliateConfig);
+      }
+      if (user.subscriber.channels && user.subscriber.channels.length > 0) {
+        setChannels(user.subscriber.channels);
+      }
     }
+
+    // Restore subscriber's saved settings from localStorage if present
+    try {
+      const savedAff = localStorage.getItem('importhourando_affiliate_config_' + user.email.toLowerCase());
+      if (savedAff) {
+        setAffiliateConfig(JSON.parse(savedAff));
+      }
+      const savedChans = localStorage.getItem('importhourando_whatsapp_channels_' + user.email.toLowerCase());
+      if (savedChans) {
+        const parsedChans = JSON.parse(savedChans);
+        if (Array.isArray(parsedChans) && parsedChans.length > 0) {
+          setChannels(parsedChans);
+        }
+      }
+    } catch (e) {}
     if (isAdm) {
       setActiveTab('subscribers');
     }
